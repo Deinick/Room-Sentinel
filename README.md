@@ -12,35 +12,32 @@
      │           │             │             │           │
      └───────────┴─────────────┼─────────────┴───────────┘
                                ↓
-                    STM32 (all 5 on one wire)
-                               │──→ TFT screen (live temps)
+                   STM32 (all 5 on 1-Wire)
+                               │──→ TFT Screen (live temps)
                                │
-                          USB Serial
-                 (one JSON line per second)
+                           USB Serial
+                   (one JSON line per second)
                                │
                                ↓
               ┌─────────────────────────────────┐
-              │      Python Gateway (backend)   │
+              │     Python Gateway (backend)    │
               │                                 │
-              │  1. Reader   – reads serial,    │
-              │                checks values    │
-              │  2. Detector –  is the room     │
-              │                cooling too      │
-              │                fast and where?  │
-              │  3. API      – FastAPI          │
+              │ 1. Reader   – reads serial,     │
+              │               checks values     │
+              │ 2. Detector – checks cooling:   │
+              │               how fast & where? │
+              │ 3. API      – FastAPI           │
               └─────────────────────────────────┘
                     │                    │
           readings, predictions,      alerts
                alerts                    │
                     ↓                    ↓
-              TimescaleDB         Phone push (ntfy)
+               TimescaleDB        Phone Push (ntfy)
               (Tiger Data)
                     │
                     ↓
                  Grafana
-         (charts, forecast, alerts)
-
-
+        (charts, forecast, alerts)
 
 
 ### DATA FORMAT

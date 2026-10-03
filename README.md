@@ -20,13 +20,13 @@
                        │
                        ↓
                    webserver
-                 /    |     \
-                /     |      \
-               ↓      ↓       ↓
-        Snowflake  TigerGraph  ML/AI
-           │          │          │
-           │          │          │
-           └──────────┼──────────┘
+                      |     
+                      |      
+                      ↓       
+                 TimescaleDB  
+                      │          
+                      │         
+                      |
                       ↓
                    Grafana
                       │

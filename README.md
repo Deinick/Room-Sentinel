@@ -17,7 +17,7 @@
                  Python Gateway
                        │
                        ↓
-                   FastAPI
+                   webserver
                  /    |     \
                 /     |      \
                ↓      ↓       ↓

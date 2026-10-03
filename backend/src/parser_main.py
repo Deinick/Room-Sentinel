@@ -6,6 +6,8 @@ import sys
 
 import serial
 
+import psycopg
+
 import threading
 import time
 import uvicorn
@@ -38,7 +40,17 @@ def lines_from_serial(port):
                 yield raw.decode("ascii", errors="replace")
 
 
+def save_reading(conn,device_id,time,sensors):
+    with conn.cursor() as cur:
+        for name,s in sensors.items():
+            cur.execute(
+                "INSERT INTO readings (time, device_id, sensor, temp_c, status) VALUES (%s, %s, %s, %s, %s)",
+                (time,device_id,name,s["temp"],s["status"]),
+            )
+
+
 def read_loop(lines):
+    conn=None
     for line in lines:
         frame=parse_line(line)
         if frame is None:
@@ -52,6 +64,18 @@ def read_loop(lines):
             sensors[name]={"temp":temp,"status":label}
 
         latest[frame["id"]]={"time": now.isoformat(),"sensors":sensors}
+        try:
+            if conn is None:
+                # No arguments: psycopg reads PGHOST, PGUSER, PGPASSWORD, ... from the environment (.env)
+                conn=psycopg.connect(autocommit=True)
+            save_reading(conn,frame["id"],now,sensors)
+        except psycopg.Error as e:
+            # Don't let a database problem stop the reader: /latest stays live,
+            # and we reconnect on the next reading
+            print("database error, reading not saved:",e)
+            if conn is not None:
+                conn.close()
+            conn=None
         print("reading from",frame["id"],"at",now.strftime("%H:%M:%S"))
 
 def main():

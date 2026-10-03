@@ -2,36 +2,45 @@
 
 ### Project Architecture
 
+                         PHYSICAL WORLD
+                               │
+     ┌───────────┬─────────────┼─────────────┬───────────┐
+     ↓           ↓             ↓             ↓           ↓
+  Sensor 1    Sensor 2      Sensor 3      Sensor 4    Sensor 5
+  Room        Window        Heater        Door        Far wall
+  centre
+     │           │             │             │           │
+     └───────────┴─────────────┼─────────────┴───────────┘
+                               ↓
+                    STM32 (all 5 on one wire)
+                               │──→ TFT screen (live temps)
+                               │
+                          USB Serial
+                 (one JSON line per second)
+                               │
+                               ↓
+              ┌─────────────────────────────────┐
+              │      Python Gateway (backend)   │
+              │                                 │
+              │  1. Reader   – reads serial,    │
+              │                checks values    │
+              │  2. Detector –  is the room     │
+              │                cooling too      │
+              │                fast and where?  │
+              │  3. API      – FastAPI          │
+              └─────────────────────────────────┘
+                    │                    │
+          readings, predictions,      alerts
+               alerts                    │
+                    ↓                    ↓
+              TimescaleDB         Phone push (ntfy)
+              (Tiger Data)
+                    │
+                    ↓
+                 Grafana
+         (charts, forecast, alerts)
 
-                 PHYSICAL WORLD
-                       │
-        ┌──────────────┼──────────────┐
-        ↓              ↓              ↓
-   Room Sensor    Window Sensor   Heater Sensor
-        │              │              │
-        └──────────────┼──────────────┘
-                       ↓
-                    STM32
-                       │
-                 USB Serial
-                       │
-                       ↓
-                 Python Gateway
-                       │
-                       ↓
-                   webserver
-                      |     
-                      |      
-                      ↓       
-                 TimescaleDB  
-                      │          
-                      │         
-                      |
-                      ↓
-                   Grafana
-                      │
-                      ↓
-             Digital Twin Dashboard
+
 
 
 ### DATA FORMAT

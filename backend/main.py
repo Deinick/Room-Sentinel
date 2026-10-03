@@ -6,9 +6,27 @@ import sys
 
 import serial
 
+import threading
+import time
+import uvicorn
+from fastapi import FastAPI
+
+LOG_FILE="sample.log"
+
+latest=None
+
+app=FastAPI()
+
+@app.get("/latest")
+def get_latest():
+    if latest is None:
+        return {"error": "no data yet"}
+    return latest
+
 def lines_from_file(path):
     with open(path) as file:
         for line in file:
+            time.sleep(1)
             yield line
 
 
@@ -19,8 +37,23 @@ def lines_from_serial(port):
             if raw:
                 yield raw.decode("ascii", errors="replace")
 
-LOG_FILE="sample.log"
 
+def read_loop(lines):
+    global latest
+    for line in lines:
+        frame=parse_line(line)
+        if frame is None:
+            print("skipped:",repr(line))
+            continue
+
+        now=datetime.now(timezone.utc)
+        results=check_all(frame["temps"])
+        sensors={}
+        for sensor_id,(temp, label) in results.items():
+            sensors[sensor_id]={"temp":temp,"status":label}
+
+        latest={"time": now.isoformat(),"ms":frame["ms"],"sensors":sensors}
+        print("reading at",now.strftime("%H:%M:%S"))
 
 def main():
     if len(sys.argv)>1:
@@ -28,17 +61,9 @@ def main():
     else:
         lines=lines_from_file(LOG_FILE)
 
-    for line in lines:
-        frame=parse_line(line)
-        if frame is None:
-            print("skipped:", repr(line))
-            continue
-
-        now=datetime.now(timezone.utc)
-        results = check_all(frame["temps"])
-        print(now.strftime("%H:%M:%S"), "ms =", frame["ms"])
-        for sensor_id, (temp, label) in results.items():
-            print("   sensor", sensor_id, temp, label)
+    reader=threading.Thread(target=read_loop,args=(lines,),daemon=True)
+    reader.start()
+    uvicorn.run(app,host="127.0.0.1",port=8000)
 
 
 if __name__=="__main__":

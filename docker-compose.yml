@@ -1,0 +1,12 @@
+services:
+  fastapi:
+    build:
+      context: ./backend
+    container_name: stormhacks_fastapi
+    # Loads the PG* vars (the Tiger Cloud database) and other settings
+    # from .env, see .env.example.
+    env_file:
+      - .env
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    restart: unless-stopped

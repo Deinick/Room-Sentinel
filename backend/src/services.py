@@ -37,6 +37,6 @@ class BaseService:
         await self.session.rollback()
  
     async def refresh(self, instance: object) -> None:
-        """Reload instance from DB — useful after commit to get server-generated values."""
+        """Reload instance from DB - useful after commit to get server-generated values."""
         logger.debug("%s.refresh(%r)", self.__class__.__name__, instance)
         await self.session.refresh(instance)

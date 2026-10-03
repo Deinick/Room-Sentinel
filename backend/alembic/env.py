@@ -4,6 +4,7 @@ from sqlalchemy import create_engine, pool
 from src.database import Base, database_url
 
 # Import model modules here so autogenerate sees their tables.
+import src.auth.models  # noqa: F401
 
 url = database_url()
 target_metadata = Base.metadata

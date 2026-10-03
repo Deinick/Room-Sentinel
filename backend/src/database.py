@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import Depends
 from sqlalchemy import MetaData
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -40,14 +40,18 @@ class Base(DeclarativeBase):
 
 
 def database_url() -> URL:
-    # Tiger Cloud hands out postgres:// URLs; SQLAlchemy needs the psycopg 3 driver named.
+    # Built from the discrete PG* vars Tiger Cloud provides, so a password with
+    # URL-special characters (@ : / ? # %) needs no escaping.
     # The same URL works for both the async app engine and Alembic's sync engine.
-    url = make_url(os.environ["TIMESCALE_DB_URL"]).set(drivername="postgresql+psycopg")
-    # A raw password with URL-special characters (@ : / ? # %) breaks URL parsing,
-    # so it can be supplied separately and needs no escaping.
-    if password := os.environ.get("TIMESCALE_DB_PASSWORD"):
-        url = url.set(password=password)
-    return url
+    return URL.create(
+        drivername="postgresql+psycopg",
+        username=os.environ["PGUSER"],
+        password=os.environ["PGPASSWORD"],
+        host=os.environ["PGHOST"],
+        port=int(os.environ["PGPORT"]),
+        database=os.environ["PGDATABASE"],
+        query={"sslmode": os.environ.get("PGSSLMODE", "require")},
+    )
 
 
 # pool_pre_ping discards connections the cloud database closed while they sat idle.

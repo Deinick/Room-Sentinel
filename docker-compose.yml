@@ -3,7 +3,7 @@ services:
     build:
       context: ./backend
     container_name: stormhacks_fastapi
-    # Loads TIMESCALE_DB_URL (the Tiger Cloud database) and other settings
+    # Loads the PG* vars (the Tiger Cloud database) and other settings
     # from .env, see .env.example.
     env_file:
       - .env

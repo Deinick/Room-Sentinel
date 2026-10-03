@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from src.auth.routes import router as auth_router
 from src.database import engine
 
 
@@ -14,6 +15,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="stormhacks gateway", lifespan=lifespan)
+app.include_router(auth_router)
 
 
 @app.get("/health")

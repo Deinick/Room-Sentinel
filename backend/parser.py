@@ -1,5 +1,7 @@
 import json
 
+SENSOR_NAMES=["Centre","Window","Heater","Door","Far wall"]
+
 def parse_line(line: str) -> dict | None:
     line=line.strip()
     if line=="":
@@ -15,32 +17,39 @@ def parse_line(line: str) -> dict | None:
         return None
 
 
+    device_id=data.get("id")
+    if not isinstance(device_id,str) or device_id=="":
+        return None
+
     temps={}
-    for key, value in data.items():
-        if key.isdigit():
-            if value is None:
-                temps[int(key)]=None
-            else:
-                try:
-                    temps[int(key)]=float(value)
-                except (ValueError, TypeError):
-                    temps[int(key)]=None
+    for name in SENSOR_NAMES:
+        if name not in data:
+            continue
+        value=data[name]
+        if value is None:
+            temps[name]=None
+        else:
+            try:
+                temps[name]=float(value)
+            except (ValueError, TypeError):
+                temps[name]=None
 
     if len(temps)==0:
         return None
 
-    return {"ms":data.get("ms"),"temps":temps}
+    return {"id":device_id,"temps":temps}
 
 
 if __name__=="__main__":
     tests=[
-        '{"ms":123450,"1":21.44,"2":19.81,"3":34.06,"4":20.90,"5":21.12}',
-        '{"ms":1000,"1":21.5,"2":null}',
+        '{"id":"room-101","Centre":21.44,"Window":19.81,"Heater":34.06,"Door":20.90,"Far wall":21.12}',
+        '{"id":"room-101","Centre":21.5,"Window":null}',
+        '{"Centre":21.5}',
+        '{"id":"room-101","Centre":"abc"}',
+        '{"id":"room-101","Centre":21.44,"Window":19.6',
+        '{"id":"room-101","boot":1}',
         '',
         'hello from stm32',
-        '{"ms":12,"1":2',
-        '{"boot":1}',
-        '{"ms":1,"1":"abc"}',
     ]
     for t in tests:
         print(repr(t), "->", parse_line(t))

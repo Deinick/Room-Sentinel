@@ -13,13 +13,13 @@ from fastapi import FastAPI
 
 LOG_FILE="sample.log"
 
-latest=None
+latest={}  # newest reading per device: {"room-101": {...}, "room-202": {...}}
 
 app=FastAPI()
 
 @app.get("/latest")
 def get_latest():
-    if latest is None:
+    if not latest:
         return {"error": "no data yet"}
     return latest
 
@@ -39,7 +39,6 @@ def lines_from_serial(port):
 
 
 def read_loop(lines):
-    global latest
     for line in lines:
         frame=parse_line(line)
         if frame is None:
@@ -49,11 +48,11 @@ def read_loop(lines):
         now=datetime.now(timezone.utc)
         results=check_all(frame["temps"])
         sensors={}
-        for sensor_id,(temp, label) in results.items():
-            sensors[sensor_id]={"temp":temp,"status":label}
+        for name,(temp, label) in results.items():
+            sensors[name]={"temp":temp,"status":label}
 
-        latest={"time": now.isoformat(),"ms":frame["ms"],"sensors":sensors}
-        print("reading at",now.strftime("%H:%M:%S"))
+        latest[frame["id"]]={"time": now.isoformat(),"sensors":sensors}
+        print("reading from",frame["id"],"at",now.strftime("%H:%M:%S"))
 
 def main():
     if len(sys.argv)>1:

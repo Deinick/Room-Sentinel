@@ -42,12 +42,13 @@
 
 ### DATA FORMAT
 
-{     
-      1:29.7;
-      2:29.9;
-      ...
-      5:30.5 ;
-      "timestamp": "2023-08-19 12:17:55 -0400";
+{  
+      "id":"string"   
+      "Centre":29.7,
+      "Window":29.9,
+      "Heater":23.8,
+      "Door":23.5,
+      "Far wall":30.5,
 }
 
 #### Larp:

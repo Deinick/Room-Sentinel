@@ -47,11 +47,11 @@ async def login_for_access_token(
         logger.warning("Failed login attempt for %r.", form_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password.",
+            detail="Incorrect email or password.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = token_service.create_access_token(user.username)
-    logger.info("Token issued for user %r.", user.username)
+    access_token = token_service.create_access_token(user.id)
+    logger.info("Token issued for user %r.", user.email)
     return Token(access_token=access_token, token_type="bearer")
 
 
@@ -79,7 +79,6 @@ async def update_user(
     try:
         updated = await service.update_user(
             id=current_user.id,
-            username=payload.username,
             email=str(payload.email) if payload.email else None,
             password=payload.password1,
         )
@@ -112,7 +111,6 @@ async def create_user(
 ) -> ReadUser:
     try:
         user = await service.create_user(
-            username=payload.username,
             email=str(payload.email),
             password=payload.password,
         )

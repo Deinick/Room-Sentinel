@@ -26,34 +26,32 @@ class TokenService(BaseService):
     Instantiated via get_repository(TokenService) - only receives session.
     """
 
-    async def authenticate_user(self, username: str, password: str) -> Optional[User]:
+    async def authenticate_user(self, email: str, password: str) -> Optional[User]:
         """Return the User if credentials are valid, otherwise None.
 
-        Accepts username or email in the username field.
         Rejects soft-deleted accounts.
         """
-        lookup = (username or "").strip()
+        lookup = (email or "").strip().lower()
         if not lookup:
             return None
 
-        user = await self.session.scalar(select(User).where(User.username == lookup))
-
-        if user is None and "@" in lookup:
-            # Fall back to email lookup if the input looks like an email.
-            user = await self.session.scalar(select(User).where(User.email == lookup.lower()))
+        user = await self.session.scalar(select(User).where(User.email == lookup))
 
         if user is None or user.is_deleted:
             return None
         if not verify_password(password, user.hashed_password):
             return None
 
-        logger.info("User %r authenticated successfully.", user.username)
+        logger.info("User %r authenticated successfully.", user.email)
         return user
 
-    def create_access_token(self, username: str) -> str:
-        """Sign and return a JWT access token for the given username."""
+    def create_access_token(self, user_id: int) -> str:
+        """Sign and return a JWT access token for the given user id.
+
+        The id is used instead of email because email can change.
+        """
         payload: Dict[str, Any] = {
-            "sub": username,
+            "sub": str(user_id),
             "exp": datetime.now(timezone.utc) + ACCESS_TOKEN_EXPIRY,
         }
         return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -66,8 +64,8 @@ class TokenService(BaseService):
             logger.warning("Token decode failed.")
             return None
 
-        username: Optional[str] = payload.get("sub")
-        if not username:
+        sub: Optional[str] = payload.get("sub")
+        if not sub or not sub.isdigit():
             return None
 
-        return await self.session.scalar(select(User).where(User.username == username))
+        return await self.session.get(User, int(sub))

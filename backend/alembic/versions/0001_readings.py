@@ -1,7 +1,7 @@
 """readings hypertable
 
 Revision ID: 0001_readings
-Revises:
+Revises: 839498599ec5
 Create Date: 2026-10-03
 
 """
@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 
 revision: str = "0001_readings"
-down_revision: Union[str, Sequence[str], None] = None
+down_revision: Union[str, Sequence[str], None] = "839498599ec5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

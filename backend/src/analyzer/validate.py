@@ -1,4 +1,4 @@
-from parser import SENSOR_NAMES
+from .parser import SENSOR_NAMES
 
 DISCONNECTED=-127.0
 POWER_ON=85.0

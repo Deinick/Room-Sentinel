@@ -28,11 +28,11 @@
               │               how fast & where? │
               │ 3. API      – FastAPI           │
               └─────────────────────────────────┘
-                    │                    │
-          readings, predictions,      alerts
-               alerts                    │
-                    ↓                    ↓
-               TimescaleDB        Phone Push (ntfy)
+                    │
+          readings, predictions,
+               alerts
+                    ↓
+               TimescaleDB
               (Tiger Data)
                     │
                     ↓

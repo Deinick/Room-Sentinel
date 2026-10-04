@@ -86,11 +86,6 @@ kbd{background:var(--card2);border:1px solid var(--line);border-radius:4px;paddi
     <div class="card">
       <h3>Phone</h3>
       <div class="phone"><div class="pt" id="phoneTime">9:41</div><div class="pd" id="phoneDate"></div><div class="notifs" id="notifs"></div></div>
-      <label><input type="checkbox" id="pushOn"> Also send real push to my phone (ntfy)</label>
-      <label>Topic (acts like a password: keep it private)</label>
-      <input type="text" id="topic">
-      <div class="row"><button id="pushTest">Send test push</button><span class="note" id="pushStatus"></span></div>
-      <div class="note">Install the free ntfy app, subscribe to the topic above. Needs internet access.</div>
     </div>
 
     <div class="card">
@@ -317,7 +312,6 @@ function runCalibration(seed=777){
 // ===== UI =====
 const $=id=>document.getElementById(id);
 let sim,det,cal,hist,speed=120,paused=false,thr=20,lastStatus=null,lastSample=null,heaterState=true;
-const pushCfg={topic:'room-sentinel-'+Math.random().toString(36).slice(2,8)};
 const W=720,H_ROOM=440,H_CHART=220;
 const RX=52,RY=62,RW=616,RH=326;           // room interior
 const WIN={x1:300,x2:460,y:RY};              // window on top wall
@@ -349,17 +343,9 @@ function showOnPhone(level,title,body){
   n.querySelector('.nt').textContent=title;n.querySelector('.nb').textContent=body;
   const box=$('notifs');box.prepend(n);while(box.children.length>3)box.lastChild.remove();
 }
-async function sendPush(title,body,prio,tags){
-  if(!$('pushOn').checked&&!arguments[4])return;
-  try{
-    const r=await fetch('https://ntfy.sh',{method:'POST',body:JSON.stringify({topic:$('topic').value.trim(),title,message:body,priority:prio,tags})});
-    $('pushStatus').textContent=r.ok?'sent '+new Date().toLocaleTimeString():'push failed ('+r.status+')';
-  }catch(e){$('pushStatus').textContent='push failed (offline or blocked)';}
-}
 function notify(level,title,body,prio,tags){
   showOnPhone(level,title,body);
   if(level!=='ok')beep(level==='bad'?660:880);
-  sendPush(title,body,prio,tags);
 }
 
 // ---------- explanation text (computed numbers -> words) ----------
@@ -513,7 +499,6 @@ $('thrSlider').oninput=e=>{thr=+e.target.value;$('thrVal').textContent=thr;};
 $('speed').onchange=e=>{speed=+e.target.value;};
 $('bCal').onclick=()=>{cal=runCalibration(Math.floor(Math.random()*9000)+1);det.cal=cal;};
 $('bReset').onclick=()=>{init(true);};
-$('pushTest').onclick=()=>{showOnPhone('ok','Test notification','Room Sentinel is connected.');sendPush('Room Sentinel test','Test notification from your simulator.',3,['white_check_mark'],true);};
 $('room').addEventListener('click',e=>{
   const r=$('room').getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H_ROOM/r.height;
   if(x>=WIN.x1-10&&x<=WIN.x2+10&&y>=30&&y<=100)setWindow(!sim.windowOpen);
@@ -525,7 +510,6 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='h'||e.key==='H')setHeater(!sim.heaterOn);
   else if(e.key===' '){e.preventDefault();$('bPause').click();}
 });
-$('topic').value=pushCfg.topic;
 function tickPhoneClock(){const n=new Date();$('phoneTime').textContent=n.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/i,'');$('phoneDate').textContent=n.toLocaleDateString([], {weekday:'long',month:'long',day:'numeric'});}
 tickPhoneClock();setInterval(tickPhoneClock,15000);
 

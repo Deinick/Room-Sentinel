@@ -62,5 +62,5 @@ class Pipeline:
                 try:
                     channel.send(event)
                 except Exception:
-                    # One broken channel (e.g. no internet for ntfy) must not stop the others.
+                    # One broken channel must not stop the others.
                     log.exception("channel %s failed",type(channel).__name__)

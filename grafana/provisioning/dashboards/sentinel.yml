@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: sentinel
+    folder: Room Sentinel
+    type: file
+    options:
+      path: /etc/grafana/dashboards

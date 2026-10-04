@@ -7,12 +7,11 @@
     python -m src.sentinel.run --api                            # also serve the team API (/latest, /issues, auth)
 
 Database settings come from PGHOST, PGUSER, PGPASSWORD, ... in the environment.
-Set NTFY_TOPIC to also get phone notifications.
+Dashboards and alerts live in Grafana (docker compose up grafana).
 """
 
 import argparse
 import logging
-import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -29,7 +28,6 @@ from src.sentinel.issues import IssueTracker
 from src.sentinel.live import LIVE
 from src.sentinel.notify.base import Channel
 from src.sentinel.notify.console import ConsoleChannel
-from src.sentinel.notify.ntfy import NtfyChannel
 from src.sentinel.pipeline import Pipeline
 from src.sentinel.storage import MemoryStorage, PostgresStorage
 
@@ -48,10 +46,7 @@ def build_analyzers() -> list[Analyzer]:
 
 
 def build_channels() -> list[Channel]:
-    channels=[ConsoleChannel()]
-    if os.environ.get("NTFY_TOPIC"):
-        channels.append(NtfyChannel(os.environ["NTFY_TOPIC"]))
-    return channels
+    return [ConsoleChannel()]
 
 
 def build_pipeline(use_db=True) -> Pipeline:

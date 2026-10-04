@@ -1,0 +1,16 @@
+# Same PG* settings as the backend (.env). Grafana expands $VARS at startup.
+apiVersion: 1
+datasources:
+  - name: TimescaleDB
+    uid: timescaledb
+    type: grafana-postgresql-datasource
+    url: ${PGHOST}:${PGPORT}
+    user: ${PGUSER}
+    isDefault: true
+    jsonData:
+      database: ${PGDATABASE}
+      sslmode: ${PGSSLMODE}
+      timescaledb: true
+      postgresVersion: 1500
+    secureJsonData:
+      password: ${PGPASSWORD}

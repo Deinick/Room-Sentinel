@@ -22,3 +22,24 @@ services:
     depends_on:
       - fastapi
     restart: unless-stopped
+
+  # Dashboards and alerts over TimescaleDB. Open http://localhost:3000 (admin / GRAFANA_ADMIN_PASSWORD).
+  # Datasource, dashboard and alert rule are provisioned from ./grafana.
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: stormhacks_grafana
+    env_file:
+      - .env
+    environment:
+      PGSSLMODE: ${PGSSLMODE:-require}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    restart: unless-stopped
+
+volumes:
+  grafana_data:

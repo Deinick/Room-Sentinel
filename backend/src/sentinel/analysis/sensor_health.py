@@ -16,10 +16,13 @@ PROBLEM_TEXT={
 class SensorHealth(Analyzer):
     name="sensor_health"
 
-    def __init__(self, grace_seconds=10):
+    def __init__(self, grace_seconds=10, metric_every_seconds=60):
         # One bad reading is normal noise; only report a sensor that stays bad this long.
         self.grace_seconds=grace_seconds
+        # Readings arrive every second; sensors_ok is written when it changes, otherwise once a minute.
+        self.metric_every_seconds=metric_every_seconds
         self._bad_since: dict[tuple[str,str],datetime]={}  # (device, sensor) -> first bad reading
+        self._last_metric: dict[str,tuple[datetime,int]]={}  # device -> (time, value) last written
 
     def analyze(self, reading: Reading) -> AnalysisResult:
         findings=[]
@@ -44,5 +47,12 @@ class SensorHealth(Analyzer):
                 evidence={"status":value.status,"bad_for_seconds":round(bad_for),"since":since.isoformat()},
             ))
 
-        metrics=[Metric(reading.device_id,reading.time,"sensors_ok",ok_count)]
-        return AnalysisResult(findings,metrics)
+        return AnalysisResult(findings,self._metrics(reading,ok_count))
+
+    def _metrics(self, reading: Reading, ok_count: int) -> list[Metric]:
+        last=self._last_metric.get(reading.device_id)
+        due=last is None or last[1]!=ok_count or (reading.time-last[0]).total_seconds()>=self.metric_every_seconds
+        if not due:
+            return []
+        self._last_metric[reading.device_id]=(reading.time,ok_count)
+        return [Metric(reading.device_id,reading.time,"sensors_ok",ok_count)]

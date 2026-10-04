@@ -61,7 +61,7 @@ def test_pipeline_end_to_end():
     pipeline.tick(at(60))  # device went quiet
 
     assert len(storage.readings)==16
-    assert [m.value for m in storage.metrics][:2]==[4,4]
+    assert [m.value for m in storage.metrics]==[4,5]  # at the start, then when Door came back
     types=[(e.type,e.finding.kind) for e in recorder.events]
     assert types==[(EventType.OPENED,"SENSOR_FAULT"),(EventType.RESOLVED,"SENSOR_FAULT"),
                    (EventType.OPENED,"DEVICE_SILENT")]

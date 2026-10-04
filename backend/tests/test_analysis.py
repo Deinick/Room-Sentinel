@@ -23,12 +23,19 @@ def test_sensor_health_ignores_a_short_glitch():
 
 def test_sensor_health_reports_a_lasting_fault():
     sh=SensorHealth(grace_seconds=10)
-    sh.analyze(reading(0,Door=-127.0))
+    first=sh.analyze(reading(0,Door=-127.0))
     result=sh.analyze(reading(12,Door=-127.0))
     [finding]=result.findings
     assert finding.kind=="SENSOR_FAULT" and finding.sensor=="Door"
     assert finding.evidence["status"]=="disconnected"
-    assert result.metrics[0].name=="sensors_ok" and result.metrics[0].value==4
+    assert [(m.name,m.value) for m in first.metrics]==[("sensors_ok",4)]
+
+
+def test_sensors_ok_metric_once_a_minute_or_on_change():
+    sh=SensorHealth()
+    written=[(s,m.value) for s in range(0,130) for m in sh.analyze(reading(s)).metrics]
+    assert written==[(0,5),(60,5),(120,5)]  # not 130 rows of the same number
+    assert [m.value for m in sh.analyze(reading(130,Door=-127.0)).metrics]==[4]  # a change is written at once
 
 
 def test_sensor_health_keeps_devices_apart():

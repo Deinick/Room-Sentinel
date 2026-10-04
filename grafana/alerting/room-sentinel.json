@@ -1,0 +1,41 @@
+{
+  "title": "room-sentinel",
+  "interval": 60,
+  "rules": [
+    {
+      "uid": "sentinel-active-issues",
+      "title": "Room Sentinel issue",
+      "condition": "C",
+      "for": "0s",
+      "noDataState": "OK",
+      "execErrState": "Error",
+      "annotations": {
+        "summary": "{{ $labels.device_id }}: {{ $labels.kind }} ({{ $labels.severity }})",
+        "description": "Fires while any device has a WARNING or CRITICAL issue opened, escalated or reminded in the last 2 minutes. Route it to a contact point in Alerting > Notification policies."
+      },
+      "data": [
+        {
+          "refId": "A",
+          "datasourceUid": "timescaledb",
+          "relativeTimeRange": {"from": 120, "to": 0},
+          "model": {
+            "refId": "A",
+            "format": "table",
+            "rawQuery": true,
+            "rawSql": "SELECT device_id, kind, severity, count(*)::float AS value\nFROM issue_events\nWHERE time > now() - interval '2 minutes'\n  AND event IN ('opened', 'escalated', 'reminder')\n  AND severity IN ('WARNING', 'CRITICAL')\nGROUP BY device_id, kind, severity\n"
+          }
+        },
+        {
+          "refId": "C",
+          "datasourceUid": "__expr__",
+          "model": {
+            "refId": "C",
+            "type": "threshold",
+            "expression": "A",
+            "conditions": [{"evaluator": {"type": "gt", "params": [0]}}]
+          }
+        }
+      ]
+    }
+  ]
+}

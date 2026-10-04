@@ -31,6 +31,16 @@ Demo mode starts with synthetic 30-minute history sampled every second and updat
 
 The existing `layout.htm` remains a standalone earlier simulator.
 
+### Account connection
+
+Accounts use HTTPS at `https://stormhacks.onrender.com`. Override the origin with `VITE_API_BASE_URL` in a Vite environment file if needed. Registration uses `POST /users` and returns to sign in. Login uses `POST /token`, then `GET /users/me` to retrieve the account email. Bearer tokens stay in memory; refreshing the page requires signing in again. Passwords are never stored by the frontend.
+
+Password changes verify the current password through `POST /token`, then submit matching `password1` and `password2` fields to `PUT /users/me`. Successful changes require signing in again. Account deletion uses `DELETE /users/me` after confirmation and signs out only after success. Passwords require 8–32 characters, including a letter and number. Server errors appear in the forms.
+
+The device WebSocket `/devices/stream` is separate and is not connected yet. Sensor demo and REST settings remain available. The server must allow the deployed frontend origin, JSON content type, and Authorization header through CORS. API requests time out after 60 seconds, allowing for Render startup delays.
+
+Run `node scripts/auth-check.mjs` to check account API payloads and failure handling using mock responses without modifying live accounts.
+
 ### Project Architecture
 
                          PHYSICAL WORLD

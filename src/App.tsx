@@ -1,9 +1,11 @@
+import { auth, ApiError } from './auth';
 import { useEffect, useRef, useState } from 'react';
 import { colors, defaults, initial, interpolate, keys, parsePacket, temperatureColor, type Layout, type Packet, type Sensor } from './model';
 
 const UPDATE_INTERVAL_MS = 1000;
 const STALE_AFTER_SECONDS = 5;
 const HISTORY_LIMIT = 2000;
+const validPassword = (password: string) => password.length >= 8 && password.length <= 32 && /[A-Za-z]/.test(password) && /[0-9]/.test(password);
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, React.ReactNode> = {
@@ -23,38 +25,40 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.grid}</svg>;
 }
-function Login({ onLogin }: { onLogin: (email: string) => void }) {
+function Login({ onLogin, initialNotice }: { initialNotice: string; onLogin: (email: string, token: string) => void }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  const [name, setName] = useState('');
+  const [pending, setPending] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  const [notice, setNotice] = useState(initialNotice);
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (mode === 'register' && !name.trim()) { setError('Enter your name.'); return; }
+    if (pending) return;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError('Enter a valid email address.'); return; }
-    if (password.length < 8 || password.length > 32 || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) { setError('Password must be 8–32 characters and include at least one letter and one number.'); return; }
+    if (!validPassword(password)) { setError('Password must be 8–32 characters and include at least one letter and one number.'); return; }
     if (mode === 'register' && password !== confirmPassword) { setError('The passwords do not match.'); return; }
-    setError('');
-    if (mode === 'register') {
-      setEmail(email.trim().toLowerCase());
-      setPassword('');
-      setConfirmPassword('');
-      setMode('login');
-      setNotice('Registration complete for this demo. Sign in with the email and password you just entered.');
-      return;
-    }
-    setNotice('');
-    onLogin(email.trim().toLowerCase());
+    setError(''); setNotice(''); setPending(true);
+    try {
+      const address = email.trim().toLowerCase();
+      if (mode === 'register') {
+        await auth.register(address, password);
+        setEmail(address); setPassword(''); setConfirmPassword(''); setMode('login');
+        setNotice('Account created. Sign in with your email and password.');
+      } else {
+        const token = await auth.token(address, password);
+        const user = await auth.currentUser(token);
+        onLogin(user.email, token);
+      }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not complete the account request.'); }
+    finally { setPending(false); }
   }
   return <main className="login-page"><div className="login-card">
     <a className="brand login-brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
     <div className="login-heading"><span className="login-eyebrow">YOUR ROOM, AT A GLANCE</span><h1>{mode === 'login' ? 'Welcome' : 'Create your account'}</h1><p>{mode === 'login' ? 'Sign in to continue to your room dashboard.' : 'Create an account to explore your room dashboard.'}</p></div>
     <form onSubmit={submit} noValidate>
-      {mode === 'register' && <><label className="login-label" htmlFor="login-name">Your name</label><div className="login-input-wrap"><input id="login-name" type="text" autoComplete="name" placeholder="Your name" value={name} onChange={e => { setName(e.target.value); setError(''); }} required/></div></>}
       <label className="login-label" htmlFor="login-email">Email address</label>
       <div className="login-input-wrap"><Icon name="mail" size={17}/><input id="login-email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} required/></div>
       <label className="login-label" htmlFor="login-password">Password</label>
@@ -62,12 +66,45 @@ function Login({ onLogin }: { onLogin: (email: string) => void }) {
       {mode === 'register' && <><label className="login-label" htmlFor="login-confirm-password">Confirm password</label><div className="login-input-wrap"><Icon name="lock" size={17}/><input id="login-confirm-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Enter your password again" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setError(''); }} required maxLength={32}/></div></>}
       {notice && <p className="login-notice" role="status">{notice}</p>}
       {error && <p className="login-error" role="alert">{error}</p>}
-      <button className="login-submit" type="submit">{mode === 'login' ? 'Sign in' : 'Create account'} <span>→</span></button>
+      <button className="login-submit" type="submit" disabled={pending}>{pending ? 'Connecting…' : mode === 'login' ? 'Sign in' : 'Create account'} <span>→</span></button>
     </form>
-    <div className="login-switch">{mode === 'login' ? 'New to Room Sentinel?' : 'Already have an account?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div>
-    <div className="login-demo"><strong>{mode === 'login' ? 'Prototype sign in' : 'Prototype registration'}</strong><span>{mode === 'login' ? 'Use any valid email and an 8–32 character password with one letter and one number. Login is not checked against registered accounts yet.' : 'Use an 8–32 character password with one letter and one number. Confirm your password to continue.'} This demo does not contact a server or save account details.</span></div>
+    <div className="login-switch">{mode === 'login' ? 'New to Room Sentinel?' : 'Already have an account?'} <button type="button" disabled={pending} onClick={() => { setNotice(''); setPassword(''); setConfirmPassword(''); setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div>
+    <div className="login-demo"><strong>Room Sentinel account</strong><span>Your account is managed by our server. Passwords must contain 8–32 characters, including a letter and a number.</span></div>
     <div className="login-footer"><span className="status-dot"/>Secure room monitoring <span>·</span> Room Sentinel</div>
   </div></main>;
+}
+function AccountSettings({ email, onChangePassword, onDelete }: { email: string; onChangePassword: (oldPassword: string, newPassword: string) => Promise<void>; onDelete: () => Promise<void> }) {
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [pending, setPending] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); if (pending || deleting) return; setError(''); setMessage('');
+    if (!oldPassword) { setError('Enter your current password.'); return; }
+    if (!validPassword(newPassword)) { setError('New password must be 8–32 characters and include a letter and a number.'); return; }
+    if (newPassword !== confirmation) { setError('The new passwords do not match.'); return; }
+    if (oldPassword === newPassword) { setError('Choose a different password from your current password.'); return; }
+    setPending(true);
+    try { await onChangePassword(oldPassword, newPassword); setOldPassword(''); setNewPassword(''); setConfirmation(''); setMessage('Password updated successfully.'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not update the password.'); }
+    finally { setPending(false); }
+  }
+  return <div className="account-settings">
+    <section className="panel"><div className="panel-title"><h2>Account details</h2><span className="badge">CONNECTED</span></div><dl className="account-details"><div><dt>Email address</dt><dd>{email}</dd></div><div><dt>Account status</dt><dd>Signed in</dd></div><div><dt>Password requirements</dt><dd>8–32 characters, including a letter and a number</dd></div></dl><p className="help">Your email is retrieved from your server account.</p></section>
+    <section className="panel"><div className="panel-title"><h2>Change password</h2><Icon name="lock" size={18}/></div><form className="account-password-form" onSubmit={submit} noValidate>
+      <label className="field">Current password<input type="password" autoComplete="current-password" value={oldPassword} maxLength={32} required onChange={e => setOldPassword(e.target.value)}/></label>
+      <label className="field">New password<input type="password" autoComplete="new-password" value={newPassword} minLength={8} maxLength={32} required onChange={e => setNewPassword(e.target.value)}/></label>
+      <label className="field">Confirm new password<input type="password" autoComplete="new-password" value={confirmation} minLength={8} maxLength={32} required onChange={e => setConfirmation(e.target.value)}/></label>
+      {error && <p className="login-error" role="alert">{error}</p>}{message && <p className="login-notice" role="status">{message}</p>}
+      <button className="outline-button account-save" type="submit" disabled={pending || deleting}>{pending ? 'Updating…' : 'Change password'}</button>
+    </form></section>
+    <section className="panel account-delete"><div className="panel-title"><h2>Delete account</h2></div><p className="help">Permanently delete your account. You will be signed out after the server confirms deletion.</p>{confirmDelete ? <div className="delete-confirmation"><p>Permanently delete your account? This cannot be undone.</p><div className="account-actions"><button className="outline-button delete-button" disabled={deleting || pending} onClick={async () => { setDeleteError(''); setDeleting(true); try { await onDelete(); } catch (e) { setDeleteError(e instanceof Error ? e.message : 'Could not delete account.'); } finally { setDeleting(false); } }}>{deleting ? 'Deleting…' : 'Confirm deletion'}</button><button className="outline-button" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button></div></div> : <button className="outline-button delete-button" disabled={pending} onClick={() => setConfirmDelete(true)}>Delete account</button>}{deleteError && <p className="login-error" role="alert">{deleteError}</p>}</section>
+  </div>;
 }
 type Config = { name: string; width: number; length: number; target: number; layout: Layout };
 const base: Config = { name: 'Living room', width: 6, length: 4, target: 21, layout: defaults };
@@ -107,6 +144,8 @@ function History({ history, minutes }: { history: Packet[]; minutes: number }) {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [accountEmail, setAccountEmail] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [authNotice, setAuthNotice] = useState('');
   const [config, setConfig] = useState(savedConfig);
   const [history, setHistory] = useState<Packet[]>(seedHistory);
   const [packet, setPacket] = useState<Packet>(() => ({ ...initial, timestamp: new Date().toISOString() }));
@@ -163,21 +202,38 @@ export default function App() {
   }
   function changeSource(value: 'demo' | 'rest') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
   function navigatePage(nextPage: string) { setPage(nextPage); window.scrollTo(0, 0); }
-  if (!isAuthenticated) return <Login onLogin={email => { setAccountEmail(email); setIsAuthenticated(true); }}/>;
+  function signOut() { setAccountEmail(''); setAccessToken(''); setIsAuthenticated(false); setPage('Overview'); setJumpToSensors(false); window.scrollTo(0, 0); }
+  function sessionError(e: unknown) {
+    if (e instanceof ApiError && e.status === 401) { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); }
+    throw e;
+  }
+  async function changeAccountPassword(oldPassword: string, newPassword: string) {
+    let verifiedToken: string;
+    try { verifiedToken = await auth.token(accountEmail, oldPassword); }
+    catch (e) { if (e instanceof ApiError && (e.status === 401 || e.status === 400)) throw new Error('The current password is incorrect.'); throw e; }
+    try { await auth.changePassword(verifiedToken, newPassword); }
+    catch (e) { sessionError(e); }
+    signOut(); setAuthNotice('Password updated. Please sign in with your new password.');
+  }
+  async function deleteAccount() {
+    try { await auth.deleteAccount(accessToken); signOut(); setAuthNotice('Your account has been deleted.'); }
+    catch (e) { sessionError(e); }
+  }
+  if (!isAuthenticated) return <Login key={authNotice} initialNotice={authNotice} onLogin={(email, token) => { setAccountEmail(email); setAccessToken(token); setAuthNotice(''); setIsAuthenticated(true); navigatePage('Overview'); }}/ >;
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#" onClick={e => { e.preventDefault(); navigatePage('Overview'); }}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Insights', 'bell'], ['Settings', 'settings']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => { if (title === 'Sensor readings') { setPage('Overview'); setJumpToSensors(true); } else { navigatePage(title); } }}><Icon name={icon}/>{title}{title === 'Insights' && warning && <span className="nav-count">1</span>}</button>)}</nav>
+      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Insights', 'bell'], ['Settings', 'settings'], ['Account settings', 'lock']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => { if (title === 'Sensor readings') { setPage('Overview'); setJumpToSensors(true); } else { navigatePage(title); } }}><Icon name={icon}/>{title}{title === 'Insights' && warning && <span className="nav-count">1</span>}</button>)}</nav>
       <div className="sidebar-room"><span className="tiny-label">CONNECTED ROOM</span><strong><span className="status-dot"/>{config.name}</strong><small>5 temperature sensors</small></div>
-      <div className="sidebar-bottom"><span className="avatar">{(accountEmail.slice(0, 2) || 'RS').toUpperCase()}</span><div><strong>Account</strong><small title={accountEmail}>{accountEmail || 'Prototype workspace'}</small></div><button className="logout-button" onClick={() => setIsAuthenticated(false)} aria-label="Sign out" title="Sign out">Sign out</button></div>
+      <div className="sidebar-bottom"><span className="avatar">{(accountEmail.slice(0, 2) || 'RS').toUpperCase()}</span><div><button className="account-link" onClick={() => navigatePage('Account settings')}>Account</button><small title={accountEmail}>{accountEmail || 'Prototype workspace'}</small></div><button className="logout-button" onClick={signOut} aria-label="Sign out" title="Sign out">Sign out</button></div>
     </aside>
     <div className="main-shell">
       <header className="topbar"><div>{page}</div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'rest' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'REST connected' : 'REST offline'}</span></div></header>
       <main>
-        <div className="page-heading"><div><div className="eyebrow">updates: 1s interval</div><h1>{page === 'Overview' ? config.name : page}</h1></div><button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button></div>
+        <div className="page-heading"><div><div className="eyebrow">updates: 1s interval</div><h1>{page === 'Overview' ? config.name : page}</h1></div>{page !== 'Account settings' && <button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button>}</div>
         {(error || stale) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Last received values are shown.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
-        {page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">REST API</span></div><p className="subtle">Poll one complete package of five sensor readings every second.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'rest')}><option value="demo">Demo simulation</option><option value="rest">REST API</option></select></label><label className="field">Latest readings endpoint<input value={url} onChange={e => setUrl(e.target.value)} type="url"/></label><p className="help">Your backend must allow this website through CORS. Measurements older than 5 seconds are marked stale.</p><h3>Expected response</h3><pre>{JSON.stringify({ Centre: 29.7, Window: 29.9, Heater: 23.8, Door: 23.5, 'Far wall': 30.5, timestamp: '2023-08-19 12:17:55 -0400' }, null, 2)}</pre></section> : <>
+        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">REST API</span></div><p className="subtle">Poll one complete package of five sensor readings every second.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'rest')}><option value="demo">Demo simulation</option><option value="rest">REST API</option></select></label><label className="field">Latest readings endpoint<input value={url} onChange={e => setUrl(e.target.value)} type="url"/></label><p className="help">Your backend must allow this website through CORS. Measurements older than 5 seconds are marked stale.</p><h3>Expected response</h3><pre>{JSON.stringify({ Centre: 29.7, Window: 29.9, Heater: 23.8, Door: 23.5, 'Far wall': 30.5, timestamp: '2023-08-19 12:17:55 -0400' }, null, 2)}</pre></section> : <>
         <div className="metrics-row">
           <div className="metric-card"><span className="metric-title">Room centre <Icon name="temp" size={17}/></span><strong>{packet.Centre.toFixed(1)}<span>°C</span></strong><small className={Math.abs(packet.Centre - config.target) <= 2 ? 'positive' : 'amber'}>{packet.Centre < config.target - 2 ? 'Below comfort range' : packet.Centre > config.target + 2 ? 'Above comfort range' : 'Within comfort range'} <span className="subtle">· Target {config.target}°</span></small></div>
           <div className="metric-card"><span className="metric-title">Temperature spread <Icon name="pulse" size={17}/></span><strong>{(Math.max(...keys.map(k => packet[k])) - Math.min(...keys.map(k => packet[k]))).toFixed(1)}<span>°C</span></strong><small className="subtle">Warmest to coolest sensor</small></div>

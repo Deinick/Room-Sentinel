@@ -4,7 +4,11 @@ STM32/Release/
 
 # ESP-IDF generated build output
 ESP32/build/
+ESP32/managed_components/
 ESP32/sdkconfig.old
+
+# Local Git worktrees used to inspect other branches
+.worktrees/
 
 # Local headless-build workspace
 .cubeide-workspace/

@@ -20,8 +20,12 @@ static const char *TAG = "uart_link";
 static SemaphoreHandle_t link_mutex;
 static char latest_status[256] =
     "{\"type\":\"status\",\"state\":\"booting\",\"detail\":\"\"}";
+static char latest_server_status[256] =
+    "{\"type\":\"server_status\",\"state\":\"unpaired\",\"detail\":\"\"}";
+static char latest_device_info[96];
 static char latest_provisioning[384];
 static bool provisioning_available;
+static bool device_info_available;
 
 static void uart_link_write_line(const char *line)
 {
@@ -39,17 +43,30 @@ static void uart_link_write_line(const char *line)
 static void uart_status_task(void *argument)
 {
     char message[sizeof(latest_status)];
+    char server_message[sizeof(latest_server_status)];
+    char device_message[sizeof(latest_device_info)];
+    char provisioning_message[sizeof(latest_provisioning)];
     (void)argument;
 
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(3000));
         xSemaphoreTake(link_mutex, portMAX_DELAY);
         strlcpy(message, latest_status, sizeof(message));
+        strlcpy(server_message, latest_server_status, sizeof(server_message));
+        strlcpy(device_message, latest_device_info, sizeof(device_message));
+        strlcpy(provisioning_message, latest_provisioning,
+                sizeof(provisioning_message));
+        bool have_device_info = device_info_available;
+        bool have_provisioning = provisioning_available;
         xSemaphoreGive(link_mutex);
-        if (provisioning_available) {
-            uart_link_write_line(latest_provisioning);
+        if (have_device_info) {
+            uart_link_write_line(device_message);
+        }
+        if (have_provisioning) {
+            uart_link_write_line(provisioning_message);
         }
         uart_link_write_line(message);
+        uart_link_write_line(server_message);
     }
 }
 
@@ -132,6 +149,18 @@ void uart_link_send_status(const char *state, const char *detail)
     uart_link_write_line(message);
 }
 
+void uart_link_send_server_status(const char *state, const char *detail)
+{
+    char message[256];
+    snprintf(message, sizeof(message),
+             "{\"type\":\"server_status\",\"state\":\"%s\",\"detail\":\"%s\"}",
+             state, detail != NULL ? detail : "");
+    xSemaphoreTake(link_mutex, portMAX_DELAY);
+    strlcpy(latest_server_status, message, sizeof(latest_server_status));
+    xSemaphoreGive(link_mutex);
+    uart_link_write_line(message);
+}
+
 void uart_link_send_provisioning(const char *ssid, const char *password,
                                  const char *setup_url)
 {
@@ -167,6 +196,10 @@ void uart_link_send_device_info(const char *serial)
     char message[96];
     snprintf(message, sizeof(message),
              "{\"type\":\"device_info\",\"serial\":\"%s\"}", serial);
+    xSemaphoreTake(link_mutex, portMAX_DELAY);
+    strlcpy(latest_device_info, message, sizeof(latest_device_info));
+    device_info_available = true;
+    xSemaphoreGive(link_mutex);
     uart_link_write_line(message);
 }
 

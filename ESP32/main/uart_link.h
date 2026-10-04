@@ -4,6 +4,7 @@
 
 esp_err_t uart_link_init(void);
 void uart_link_send_status(const char *state, const char *detail);
+void uart_link_send_server_status(const char *state, const char *detail);
 void uart_link_send_provisioning(const char *ssid, const char *password,
                                  const char *setup_url);
 void uart_link_send_setup_url(const char *setup_url);

@@ -6,10 +6,14 @@ idf_component_register(
         "wifi_provisioning.c"
     INCLUDE_DIRS "."
     REQUIRES
+        esp_http_client
         esp_event
         esp_http_server
         esp_netif
         esp_wifi
+        esp_websocket_client
+        cjson
+        mbedtls
         nvs_flash
         esp_driver_uart
 )

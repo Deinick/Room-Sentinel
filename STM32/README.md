@@ -61,3 +61,12 @@ The CubeMX configuration also enables FreeRTOS through CMSIS-RTOS v2. HAL uses
 TIM7 as its time base so SysTick remains available to the RTOS. The ILI9488
 uses SPI1 TX DMA, and the XPT2046 shares SPI1 at a reduced clock rate with its
 own chip-select and PA4 falling-edge interrupt.
+
+## ESP32 and server integration
+
+USART3 exchanges newline-delimited JSON with the ESP32 at 9600 baud. The STM32
+sends the five sensor readings once per measurement cycle. It renders Wi-Fi
+and account QR codes received from the ESP32, tracks the secure cloud-stream
+state, records the latest server-acknowledged telemetry sequence, and accepts
+the live `target_temperature` setting pushed by the backend. The Settings
+screen shows the current target, cloud state, and acknowledgement sequence.

@@ -27,6 +27,7 @@
 #include "qrcodegen.h"
 #include "task.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -87,6 +88,7 @@ const osThreadAttr_t defaultTask_attributes = {
 /* USER CODE BEGIN PV */
 static DS18B20_t temperature_sensors[SENSOR_COUNT];
 static uint8_t temperature_status[SENSOR_COUNT];
+static uint8_t temperature_calibrated[SENSOR_COUNT];
 static volatile uint32_t wifi_status_sequence;
 static char wifi_status_text[40] = "WIFI: WAITING FOR ESP32";
 static char displayed_temperature_text[SENSOR_COUNT][32];
@@ -105,6 +107,11 @@ static char device_serial[20] = "---- ---- ---- ----";
 static char login_qr_payload[256];
 static char login_status_text[48] = "Waiting for server...";
 static volatile uint32_t login_sequence;
+static char server_status_text[32] = "UNPAIRED";
+static volatile uint32_t server_status_sequence;
+static volatile uint32_t server_ack_sequence;
+static float server_target_temperature;
+static uint8_t server_target_valid;
 static int16_t temperature_history[SENSOR_COUNT][HISTORY_SAMPLES];
 static uint8_t history_count;
 static uint8_t history_next;
@@ -149,6 +156,7 @@ void StartDefaultTask(void *argument);
 /* USER CODE BEGIN PFP */
 static void DisplayTemperature(uint8_t sensor_index);
 static void DisplayWifiStatus(void);
+static void DisplayServerStatus(void);
 static void StartUartTask(void *argument);
 static void UiRender(void);
 static void UiHandleTouch(void);
@@ -159,6 +167,8 @@ static void Esp32SendCommand(const char *command);
 static void Esp32SendTelemetry(void);
 static uint8_t JsonStringField(const char *json, const char *name,
                                char *value, size_t value_size);
+static uint8_t JsonNumberField(const char *json, const char *name,
+                               float *value);
 
 /* USER CODE END PFP */
 
@@ -178,6 +188,23 @@ static uint8_t JsonStringField(const char *json, const char *name,
   if (length >= value_size) length = value_size - 1U;
   (void)memcpy(value, start, length);
   value[length] = '\0';
+  return 1U;
+}
+
+static uint8_t JsonNumberField(const char *json, const char *name,
+                               float *value)
+{
+  char pattern[40];
+  (void)snprintf(pattern, sizeof(pattern), "\"%s\":", name);
+  const char *start = strstr(json, pattern);
+  if (start == NULL || value == NULL) return 0U;
+  start += strlen(pattern);
+  while (*start == ' ' || *start == '\t') start++;
+  if (strncmp(start, "null", 4U) == 0) return 0U;
+  char *end = NULL;
+  float parsed = strtof(start, &end);
+  if (end == start) return 0U;
+  *value = parsed;
   return 1U;
 }
 
@@ -260,7 +287,8 @@ static void DisplayTemperature(uint8_t sensor_index)
   }
   else
   {
-    (void)strncpy(line, "NOT CONNECTED", sizeof(line));
+    (void)snprintf(line, sizeof(line), "NOT CONNECTED E%u",
+                   (unsigned int)temperature_status[sensor_index]);
   }
 
   if (strcmp(line, displayed_temperature_text[sensor_index]) == 0)
@@ -306,6 +334,50 @@ static void DisplayWifiStatus(void)
   Displ_FillArea(254U, 220U, 5U, 46U,
                  (strcmp(wifi_status_text, "WIFI: wifi_connected") == 0)
                      ? UI_PRIMARY : UI_COOL);
+}
+
+static void DisplayServerStatus(void)
+{
+  char cloud_line[48];
+  char target_line[32];
+  char state[sizeof(server_status_text)];
+
+  taskENTER_CRITICAL();
+  (void)strncpy(state, server_status_text, sizeof(state));
+  state[sizeof(state) - 1U] = '\0';
+  uint32_t acknowledged = server_ack_sequence;
+  float target = server_target_temperature;
+  uint8_t target_valid = server_target_valid;
+  taskEXIT_CRITICAL();
+
+  if (acknowledged == 0U)
+    (void)snprintf(cloud_line, sizeof(cloud_line), "CLOUD: %.18s | ACK --",
+                   state);
+  else
+    (void)snprintf(cloud_line, sizeof(cloud_line), "CLOUD: %.18s | ACK %lu",
+                   state, (unsigned long)acknowledged);
+
+  if (target_valid != 0U)
+  {
+    int32_t tenths = (int32_t)((target >= 0.0f)
+                              ? (target * 10.0f + 0.5f)
+                              : (target * 10.0f - 0.5f));
+    int32_t magnitude = (tenths < 0) ? -tenths : tenths;
+    (void)snprintf(target_line, sizeof(target_line), "TARGET %s%ld.%ld C",
+                   (tenths < 0) ? "-" : "", (long)(magnitude / 10),
+                   (long)(magnitude % 10));
+  }
+  else
+  {
+    (void)strncpy(target_line, "TARGET --", sizeof(target_line));
+  }
+
+  Displ_FillArea(205U, 8U, 265U, 40U, UI_BACKGROUND);
+  Displ_CString(205U, 8U, 470U, 48U, target_line,
+                Font16, 1U, UI_TEXT, UI_BACKGROUND);
+  Displ_FillArea(150U, 235U, 320U, 26U, UI_BACKGROUND);
+  Displ_CString(150U, 235U, 470U, 261U, cloud_line,
+                Font16, 1U, UI_MUTED, UI_BACKGROUND);
 }
 
 static void UiDrawSensorCard(uint8_t sensor_index, const char *label,
@@ -535,11 +607,12 @@ static void UiRender(void)
   } else if (ui_screen == UI_STATISTICS) {
     UiDrawStatistics();
   } else if (ui_screen == UI_SETTINGS) {
-    Displ_CString(20, 10, 459, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
+    Displ_CString(20, 10, 200, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", UI_PANEL);
     UiDrawButton(40, 120, 400, 50, "ACCOUNT LOGIN", UI_PANEL);
     UiDrawButton(40, 180, 400, 50, "FACTORY RESET", D_RED);
     UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
+    DisplayServerStatus();
   } else if (ui_screen == UI_WIFI_SETUP) {
     Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawQrCode(wifi_qr_payload);
@@ -704,6 +777,12 @@ int main(void)
   {
     temperature_status[i] = DS18B20_Init(&temperature_sensors[i],
                                          sensor_ports[i], sensor_pins[i]);
+    if (temperature_status[i] == 0U)
+    {
+      temperature_status[i] =
+          DS18B20_AutoTuneReadTiming(&temperature_sensors[i], NULL);
+      temperature_calibrated[i] = (temperature_status[i] == 0U) ? 1U : 0U;
+    }
   }
 
   UiRender();
@@ -1124,9 +1203,12 @@ static void StartUartTask(void *argument)
         if (JsonStringField(line, "serial", serial, sizeof(serial)) != 0U)
         {
           taskENTER_CRITICAL();
-          (void)strncpy(device_serial, serial, sizeof(device_serial));
-          device_serial[sizeof(device_serial) - 1U] = '\0';
-          login_sequence++;
+          if (strcmp(device_serial, serial) != 0)
+          {
+            (void)strncpy(device_serial, serial, sizeof(device_serial));
+            device_serial[sizeof(device_serial) - 1U] = '\0';
+            login_sequence++;
+          }
           taskEXIT_CRITICAL();
         }
       }
@@ -1150,8 +1232,8 @@ static void StartUartTask(void *argument)
           (void)strncpy(new_login_status, "Scan QR to log in",
                         sizeof(new_login_status));
         else if (strstr(line, "\"type\":\"pairing_success\"") != NULL)
-          (void)snprintf(new_login_status, sizeof(new_login_status),
-                         "Logged in: %.36s", email);
+          (void)strncpy(new_login_status, "Account linked",
+                        sizeof(new_login_status));
         else if (strstr(line, "\"type\":\"pairing_failed\"") != NULL)
           (void)strncpy(new_login_status, "Login failed", sizeof(new_login_status));
         else if (strcmp(state, "requesting") == 0)
@@ -1235,6 +1317,66 @@ static void StartUartTask(void *argument)
           taskEXIT_CRITICAL();
         }
       }
+      if (strstr(line, "\"type\":\"server_status\"") != NULL)
+      {
+        char new_server_status[sizeof(server_status_text)] = "";
+        if (JsonStringField(line, "state", new_server_status,
+                            sizeof(new_server_status)) != 0U)
+        {
+          for (size_t i = 0U; new_server_status[i] != '\0'; i++)
+          {
+            if (new_server_status[i] == '_') new_server_status[i] = ' ';
+            if (new_server_status[i] >= 'a' && new_server_status[i] <= 'z')
+              new_server_status[i] -= ('a' - 'A');
+          }
+          taskENTER_CRITICAL();
+          if (strcmp(server_status_text, new_server_status) != 0)
+          {
+            (void)strncpy(server_status_text, new_server_status,
+                          sizeof(server_status_text));
+            server_status_text[sizeof(server_status_text) - 1U] = '\0';
+            server_status_sequence++;
+          }
+          taskEXIT_CRITICAL();
+        }
+      }
+      if (strstr(line, "\"type\":\"settings\"") != NULL)
+      {
+        float target;
+        taskENTER_CRITICAL();
+        if (JsonNumberField(line, "target_temperature", &target) != 0U)
+        {
+          server_target_temperature = target;
+          server_target_valid = 1U;
+        }
+        else
+        {
+          server_target_valid = 0U;
+        }
+        server_status_sequence++;
+        taskEXIT_CRITICAL();
+      }
+      if (strstr(line, "\"ok\":true") != NULL)
+      {
+        float acknowledged;
+        if (JsonNumberField(line, "seq", &acknowledged) != 0U &&
+            acknowledged >= 0.0f)
+        {
+          taskENTER_CRITICAL();
+          server_ack_sequence = (uint32_t)acknowledged;
+          server_status_sequence++;
+          taskEXIT_CRITICAL();
+        }
+      }
+      else if (strstr(line, "\"ok\":false") != NULL)
+      {
+        taskENTER_CRITICAL();
+        (void)strncpy(server_status_text, "DATA REJECTED",
+                      sizeof(server_status_text));
+        server_status_text[sizeof(server_status_text) - 1U] = '\0';
+        server_status_sequence++;
+        taskEXIT_CRITICAL();
+      }
       length = 0U;
     }
     else if (byte != '\r')
@@ -1266,12 +1408,30 @@ void StartDefaultTask(void *argument)
   uint32_t displayed_wifi_sequence = UINT32_MAX;
   uint32_t displayed_qr_sequence = wifi_qr_sequence;
   uint32_t displayed_login_sequence = login_sequence;
+  uint32_t displayed_server_sequence = server_status_sequence;
   /* Infinite loop */
   for(;;)
   {
     for (uint8_t i = 0U; i < SENSOR_COUNT; i++)
     {
-      temperature_status[i] = DS18B20_StartConversion(&temperature_sensors[i]);
+      if (temperature_calibrated[i] == 0U)
+      {
+        temperature_status[i] = DS18B20_Init(&temperature_sensors[i],
+                                             sensor_ports[i], sensor_pins[i]);
+        if (temperature_status[i] == 0U)
+        {
+          temperature_status[i] =
+              DS18B20_AutoTuneReadTiming(&temperature_sensors[i], NULL);
+          temperature_calibrated[i] =
+              (temperature_status[i] == 0U) ? 1U : 0U;
+        }
+      }
+
+      if (temperature_calibrated[i] != 0U)
+      {
+        temperature_status[i] =
+            DS18B20_StartConversion(&temperature_sensors[i]);
+      }
     }
 
     UiServiceDelay(SENSOR_CONVERSION_TIME_MS);
@@ -1281,6 +1441,10 @@ void StartDefaultTask(void *argument)
       if (temperature_status[i] == 0U)
       {
         temperature_status[i] = DS18B20_ReadTemperature(&temperature_sensors[i]);
+      }
+      if (temperature_status[i] != 0U)
+      {
+        temperature_calibrated[i] = 0U;
       }
 
       if (ui_screen == UI_HOME)
@@ -1314,6 +1478,14 @@ void StartDefaultTask(void *argument)
       if (ui_screen == UI_ACCOUNT_LOGIN)
       {
         ui_redraw = 1U;
+      }
+    }
+    if (displayed_server_sequence != server_status_sequence)
+    {
+      displayed_server_sequence = server_status_sequence;
+      if (ui_screen == UI_SETTINGS)
+      {
+        DisplayServerStatus();
       }
     }
 

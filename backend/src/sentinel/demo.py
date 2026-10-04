@@ -20,6 +20,7 @@ from src.sentinel.issues import IssueTracker
 from src.sentinel.live import LIVE, LiveView
 from src.sentinel.notify.base import Channel
 from src.sentinel.pipeline import Pipeline
+from src.sentinel.profiles import PROFILES
 from src.sentinel.run import build_analyzers, build_channels
 from src.sentinel.sim.device import SimulatedDevice
 from src.sentinel.storage import NullStorage
@@ -100,6 +101,8 @@ class DemoRunner:
 
     def _run(self, seconds: int) -> int:
         for time,frame in self.device.advance(seconds):
+            # The demo knows its outside temperature, like a real device would from a weather service.
+            PROFILES.set_outside(self.device_id,self.device.room.controls.outside_c)
             self.pipeline.process(to_reading(frame,time))
         if seconds:
             self.pipeline.tick(self.device.time)  # time-based analyzers run on simulated time too

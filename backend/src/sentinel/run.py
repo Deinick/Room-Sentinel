@@ -21,6 +21,7 @@ from src.sentinel.advice import advise
 from src.sentinel.analysis.base import Analyzer
 from src.sentinel.analysis.device_silence import DeviceSilence
 from src.sentinel.analysis.sensor_health import SensorHealth
+from src.sentinel.analysis.thermal import ThermalAnalyzer
 from src.sentinel.ingest import sources
 from src.sentinel.ingest.parser import parse_line
 from src.sentinel.ingest.validate import to_reading
@@ -42,6 +43,7 @@ def build_analyzers() -> list[Analyzer]:
     return [
         SensorHealth(),
         DeviceSilence(),
+        ThermalAnalyzer(),
     ]
 
 

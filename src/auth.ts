@@ -6,7 +6,7 @@ export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-async function request<T>(path: string, method: string, body?: unknown, token?: string): Promise<T> {
+export async function request<T>(path: string, method: string, body?: unknown, token?: string): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_BASE}${path}`, {

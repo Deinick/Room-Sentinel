@@ -33,13 +33,25 @@ The existing `layout.htm` remains a standalone earlier simulator.
 
 ### Account connection
 
-Accounts use HTTPS at `https://stormhacks.onrender.com`. Override the origin with `VITE_API_BASE_URL` in a Vite environment file if needed. Registration uses `POST /users` and returns to sign in. Login uses `POST /token`, then `GET /users/me` to retrieve the account email. Bearer tokens stay in memory; refreshing the page requires signing in again. Passwords are never stored by the frontend.
+Accounts use HTTPS at `https://stormhacks.onrender.com`. Override the origin with `VITE_API_BASE_URL` in a Vite environment file if needed. Registration uses `POST /users` and returns to sign in. Login uses `POST /token`, then `GET /users/me` to retrieve the account email. Bearer tokens are saved in browser session storage so refreshing the page restores the session after validation through GET /users/me. Closing the tab ends this browser session. Sign out, account deletion, and password changes clear the saved token. Temporary connection failures offer a retry without discarding the session. Passwords are never stored by the frontend.
 
 Password changes verify the current password through `POST /token`, then submit matching `password1` and `password2` fields to `PUT /users/me`. Successful changes require signing in again. Account deletion uses `DELETE /users/me` after confirmation and signs out only after success. Passwords require 8–32 characters, including a letter and number. Server errors appear in the forms.
 
-The device WebSocket `/devices/stream` is separate and is not connected yet. Sensor demo and REST settings remain available. The server must allow the deployed frontend origin, JSON content type, and Authorization header through CORS. API requests time out after 60 seconds, allowing for Render startup delays.
+The server must allow the deployed frontend origin, JSON content type, and Authorization header through CORS. API requests time out after 60 seconds, allowing for Render startup delays.
 
 Run `node scripts/auth-check.mjs` to check account API payloads and failure handling using mock responses without modifying live accounts.
+
+### Devices and pairing
+
+After sign in, `GET /devices` runs immediately and every five seconds. With no devices, the overview shows three pairing steps and an option to explore the local demo. A newly paired device automatically becomes the active room. The Devices tab lets owners rename devices, set minimum/target/maximum temperatures (`PATCH /devices/{device_id}`), show a room, or confirm unpairing (`DELETE /devices/{device_id}`).
+
+QR links use `/#pair/CODE`. The hash survives sign in and registration. `GET /pairing/{code}` displays the serial and expiry; `POST /pairing/{code}/confirm` links it only after user confirmation. Failed or expired codes explain how to generate a new QR code on the device.
+
+Set the **backend** environment variable `PAIRING_URL_BASE=http://localhost:5173/#pair` for local development, or `https://YOUR-FRONTEND/room-view/#pair` for that deployed path. The backend appends `/CODE`. This frontend change does not change the backend environment variable.
+
+The active device polls authenticated `GET /latest` every second. Rooms without a first reading show “Waiting for … to send readings” rather than demo values. The client expects `/latest` to map device serials to the five-sensor package and timestamp (flat or nested under `readings`, `temperatures`, or `temps`). The OpenAPI schema leaves this payload generic; verify this mapping against an actual paired-device response. The device-ingestion WebSocket is not used for these user requests.
+
+Run `node scripts/devices-check.mjs` to verify device API requests, no-reading handling, and onboarding using mock responses.
 
 ### Project Architecture
 

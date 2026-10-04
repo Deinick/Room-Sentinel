@@ -1,10 +1,14 @@
 import { auth, ApiError } from './auth';
+import { AddDevice, DevicesPanel, PairingPanel, deviceApi, devicePacket, useDevices } from './devices';
 import { useEffect, useRef, useState } from 'react';
 import { colors, defaults, initial, interpolate, keys, parsePacket, temperatureColor, type Layout, type Packet, type Sensor } from './model';
 
 const UPDATE_INTERVAL_MS = 1000;
 const STALE_AFTER_SECONDS = 5;
 const HISTORY_LIMIT = 2000;
+const SESSION_KEY = 'sentinel-access-token';
+function savedSession() { try { return sessionStorage.getItem(SESSION_KEY) || ''; } catch { return ''; } }
+function storeSession(token: string) { try { if (token) sessionStorage.setItem(SESSION_KEY, token); else sessionStorage.removeItem(SESSION_KEY); } catch { /* Authentication still works when browser storage is unavailable. */ } }
 const validPassword = (password: string) => password.length >= 8 && password.length <= 32 && /[A-Za-z]/.test(password) && /[0-9]/.test(password);
 
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
@@ -56,7 +60,7 @@ function Login({ onLogin, initialNotice }: { initialNotice: string; onLogin: (em
     finally { setPending(false); }
   }
   return <main className="login-page"><div className="login-card">
-    <a className="brand login-brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
+    <a className="brand login-brand" href="#" onClick={e => e.preventDefault()}><img className="brand-logo" src="/logo.png" alt="Room Sentinel"/></a>
     <div className="login-heading"><span className="login-eyebrow">YOUR ROOM, AT A GLANCE</span><h1>{mode === 'login' ? 'Welcome' : 'Create your account'}</h1><p>{mode === 'login' ? 'Sign in to continue to your room dashboard.' : 'Create an account to explore your room dashboard.'}</p></div>
     <form onSubmit={submit} noValidate>
       <label className="login-label" htmlFor="login-email">Email address</label>
@@ -106,10 +110,36 @@ function AccountSettings({ email, onChangePassword, onDelete }: { email: string;
     <section className="panel account-delete"><div className="panel-title"><h2>Delete account</h2></div><p className="help">Permanently delete your account. You will be signed out after the server confirms deletion.</p>{confirmDelete ? <div className="delete-confirmation"><p>Permanently delete your account? This cannot be undone.</p><div className="account-actions"><button className="outline-button delete-button" disabled={deleting || pending} onClick={async () => { setDeleteError(''); setDeleting(true); try { await onDelete(); } catch (e) { setDeleteError(e instanceof Error ? e.message : 'Could not delete account.'); } finally { setDeleting(false); } }}>{deleting ? 'Deleting…' : 'Confirm deletion'}</button><button className="outline-button" disabled={deleting} onClick={() => setConfirmDelete(false)}>Cancel</button></div></div> : <button className="outline-button delete-button" disabled={pending} onClick={() => setConfirmDelete(true)}>Delete account</button>}{deleteError && <p className="login-error" role="alert">{deleteError}</p>}</section>
   </div>;
 }
-type Config = { name: string; width: number; length: number; target: number; layout: Layout };
-const base: Config = { name: 'Living room', width: 6, length: 4, target: 21, layout: defaults };
+const fixtureKeys = ['Window', 'Door', 'Heater'] as const;
+type Fixture = typeof fixtureKeys[number];
+type Wall = 'Top' | 'Right' | 'Bottom' | 'Left';
+type FixturePosition = { wall: Wall; position: number; size: number };
+type Fixtures = Record<Fixture, FixturePosition>;
+const defaultFixtures: Fixtures = { Window: { wall: 'Top', position: .265, size: 1.2 }, Door: { wall: 'Left', position: .82, size: 1 }, Heater: { wall: 'Right', position: .28, size: 1 } };
+type Config = { name: string; width: number; length: number; target: number; layout: Layout; fixtures: Fixtures };
+const base: Config = { name: 'Living room', width: 6, length: 4, target: 21, layout: defaults, fixtures: defaultFixtures };
+function savedFixtures(value: unknown): Fixtures {
+  const result = { ...defaultFixtures };
+  if (value && typeof value === 'object') for (const key of fixtureKeys) {
+    const item = (value as Partial<Fixtures>)[key];
+    if (item && ['Top', 'Right', 'Bottom', 'Left'].includes(item.wall) && Number.isFinite(item.position) && item.position >= .16 && item.position <= .84) result[key] = { ...item, size: Number.isFinite(item.size) && item.size >= .4 && item.size <= 1.4 ? item.size : defaultFixtures[key].size };
+  }
+  return result;
+}
+function RoomFixture({ name, value, width, length, editing, selected, onSelect, onDragStart, onResizeStart }: { name: Fixture; value: FixturePosition; width: number; length: number; editing: boolean; selected: boolean; onSelect: () => void; onDragStart: (event: React.PointerEvent<HTMLButtonElement>) => void; onResizeStart: (event: React.PointerEvent<HTMLButtonElement>, side: number) => void }) {
+  const horizontal = value.wall === 'Top' || value.wall === 'Bottom';
+  const rotation = { Top: 0, Right: 90, Bottom: 180, Left: 270 }[value.wall];
+  const edge = value.size / (horizontal ? width : length) / 2 + .02;
+  const position = Math.max(edge, Math.min(1 - edge, value.position));
+  const style = { left: `${value.wall === 'Left' ? 0 : value.wall === 'Right' ? 100 : position * 100}%`, top: `${value.wall === 'Top' ? 0 : value.wall === 'Bottom' ? 100 : position * 100}%`, '--fixture-rotation': `${rotation}deg`, '--fixture-span': `${value.size / width * 100}cqw` } as React.CSSProperties;
+  return <div className={`room-fixture ${name.toLowerCase()} ${editing ? 'editable' : ''} ${editing && selected ? 'selected-fixture' : ''}`} style={style}><button className="fixture-body" disabled={!editing} onClick={onSelect} onPointerDown={onDragStart} aria-label={`${name} on ${value.wall.toLowerCase()} wall${editing ? '. Drag to reposition on a wall.' : ''}`} title={editing ? `Drag ${name.toLowerCase()} to a wall` : name}>
+    <svg preserveAspectRatio={name === 'Door' ? 'xMidYMid meet' : 'none'} viewBox={name === 'Door' ? '0 -5 100 105' : '0 -10 100 25'} aria-hidden="true">
+      {name === 'Window' ? <><rect x="0" y="-7" width="100" height="14" fill="#dff2ff" stroke="#677b89" strokeWidth="2"/><path d="M50 -7V7" stroke="#677b89" strokeWidth="2"/></> : name === 'Heater' ? <><rect x="0" y="-4" width="100" height="17" fill="#f5f0df" stroke="#8c8278" strokeWidth="2"/>{Array.from({ length: 8 }, (_, i) => <path key={i} d={`M${8 + i * 12} 0v9`} stroke="#baa78d" strokeWidth="2"/>)}</> : <><path d="M0 0H100" stroke="#f6f8fc" strokeWidth="8"/><path d="M0 0V100" stroke="#97a38c" strokeWidth="3"/><path d="M100 0A100 100 0 0 1 0 100" fill="none" stroke="#97a38c" strokeWidth="1.5"/></>}
+    </svg>
+  </button>{editing && selected && name !== 'Door' && [-1, 1].map(side => <button key={side} className={`fixture-resize-handle ${side < 0 ? 'start' : 'end'}`} aria-label={`Resize ${name.toLowerCase()} length`} title="Drag to resize length" onPointerDown={e => onResizeStart(e, side)}/>)}</div>;
+}
 function savedConfig(): Config {
-  try { const c = JSON.parse(localStorage.getItem('sentinel-room') || 'null'); if (c && typeof c.name === 'string' && c.width >= 2 && c.width <= 12 && c.length >= 2 && c.length <= 12 && c.target >= 16 && c.target <= 28 && keys.every(k => c.layout?.[k]?.x >= .05 && c.layout[k].x <= .95 && c.layout[k].y >= .05 && c.layout[k].y <= .95)) return c; } catch { /* Use defaults when storage is unavailable. */ }
+  try { const c = JSON.parse(localStorage.getItem('sentinel-room') || 'null'); if (c && typeof c.name === 'string' && c.width >= 2 && c.width <= 12 && c.length >= 2 && c.length <= 12 && c.target >= 16 && c.target <= 28 && keys.every(k => c.layout?.[k]?.x >= .05 && c.layout[k].x <= .95 && c.layout[k].y >= .05 && c.layout[k].y <= .95)) return { ...c, fixtures: savedFixtures(c.fixtures) }; } catch { /* Use defaults when storage is unavailable. */ }
   return base;
 }
 function seedHistory(): Packet[] {
@@ -144,8 +174,27 @@ function History({ history, minutes }: { history: Packet[]; minutes: number }) {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [accountEmail, setAccountEmail] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+  const [accessToken, setAccessToken] = useState(savedSession);
   const [authNotice, setAuthNotice] = useState('');
+  const [restoringSession, setRestoringSession] = useState(() => !!savedSession());
+  const [restoreError, setRestoreError] = useState('');
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
+  useEffect(() => {
+    const token = savedSession();
+    if (!token) return;
+    let disposed = false;
+    setRestoringSession(true); setRestoreError('');
+    void auth.currentUser(token).then(user => {
+      if (disposed) return;
+      setAccountEmail(user.email); setAccessToken(token); setIsAuthenticated(true); setRestoringSession(false);
+    }).catch(e => {
+      if (disposed) return;
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        storeSession(''); setAccessToken(''); setAuthNotice('Your session has expired. Please sign in again.'); setRestoringSession(false);
+      } else { setRestoreError('Could not verify your session. Check your connection and try again.'); }
+    });
+    return () => { disposed = true; };
+  }, [restoreAttempt]);
   const [config, setConfig] = useState(savedConfig);
   const [history, setHistory] = useState<Packet[]>(seedHistory);
   const [packet, setPacket] = useState<Packet>(() => ({ ...initial, timestamp: new Date().toISOString() }));
@@ -159,15 +208,51 @@ export default function App() {
     setJumpToSensors(false);
   }, [page, jumpToSensors]);
   const [editing, setEditing] = useState(false), [selected, setSelected] = useState<Sensor>('Centre');
+  const [selectedFixture, setSelectedFixture] = useState<Fixture>('Window');
   const [gradient, setGradient] = useState(true), [paused, setPaused] = useState(false), [minutes, setMinutes] = useState(30);
-  const [source, setSource] = useState<'demo' | 'rest'>('demo'), [url, setUrl] = useState('http://localhost:8000/api/v1/readings/latest');
+  const [source, setSource] = useState<'demo' | 'rest' | 'device'>('demo'), [url, setUrl] = useState('http://localhost:8000/api/v1/readings/latest');
   const [error, setError] = useState(''), [connected, setConnected] = useState(false), [clock, setClock] = useState(Date.now());
+  const deviceState = useDevices(accessToken, isAuthenticated, () => { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); });
+  const device = deviceState.selected;
+  const [readingDeviceId, setReadingDeviceId] = useState('');
+  useEffect(() => {
+    if (!device) { setSource('demo'); setReadingDeviceId(''); setHistory(seedHistory()); return; }
+    setSource('device'); setPaused(false); setConnected(false); setError(''); setReadingDeviceId(''); setHistory([]);
+    setPage('Overview'); window.scrollTo(0, 0);
+  }, [device?.device_id]);
+  useEffect(() => {
+    if (device) setConfig(c => ({ ...c, name: device.name || device.device_id, target: device.target_temperature ?? c.target }));
+  }, [device?.device_id, device?.name, device?.target_temperature]);
   const mapRef = useRef<HTMLDivElement>(null), dragging = useRef<Sensor | null>(null);
+  const sensorRefs = useRef<Partial<Record<Sensor, HTMLButtonElement>>>({});
+  function constrainSensor(key: Sensor, x: number, y: number) {
+    const floor = mapRef.current, marker = sensorRefs.current[key];
+    if (!floor || !marker || !floor.clientWidth || !floor.clientHeight) return { x, y };
+    const marginX = Math.min(.5, Math.max(.05, (marker.offsetWidth / 2 + 7) / floor.clientWidth));
+    const marginY = Math.min(.5, Math.max(.05, (marker.offsetHeight / 2 + 7) / floor.clientHeight));
+    return { x: Math.max(marginX, Math.min(1 - marginX, x)), y: Math.max(marginY, Math.min(1 - marginY, y)) };
+  }
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const observer = new ResizeObserver(() => setConfig(c => {
+      const layout = { ...c.layout }; let changed = false;
+      for (const key of keys) {
+        const point = constrainSensor(key, layout[key].x, layout[key].y);
+        if (point.x !== layout[key].x || point.y !== layout[key].y) { layout[key] = point; changed = true; }
+      }
+      return changed ? { ...c, layout } : c;
+    }));
+    observer.observe(mapRef.current);
+    for (const marker of Object.values(sensorRefs.current)) if (marker) observer.observe(marker);
+    return () => observer.disconnect();
+  }, [isAuthenticated, page, config.width, config.length, readingDeviceId, deviceState.demo]);
+  const draggingFixture = useRef<Fixture | null>(null);
+  const resizingFixture = useRef<{ name: Fixture; side: number; x: number; y: number; size: number } | null>(null);
   const demoBase = useRef<Record<Sensor, number>>({ ...initial });
   useEffect(() => { try { localStorage.setItem('sentinel-room', JSON.stringify(config)); } catch { /* Layout remains usable in memory. */ } }, [config]);
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
-    if (paused || !isAuthenticated) return;
+    if (paused || !isAuthenticated || !deviceState.loaded || (!device && !deviceState.demo)) return;
     let disposed = false; const controller = new AbortController(); let busy = false;
     function accept(p: Packet) { if (disposed) return; setPacket(p); setHistory(h => { const stamp = Date.parse(p.timestamp); const without = h.filter(item => Date.parse(item.timestamp) !== stamp); return [...without, p].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).slice(-HISTORY_LIMIT); }); }
     async function tick() {
@@ -176,13 +261,22 @@ export default function App() {
         accept({ ...Object.fromEntries(keys.map((k, i) => [k, Math.round((demoBase.current[k] + Math.sin(t + i) * .12) * 10) / 10])), timestamp: new Date().toISOString() } as Packet); return;
       }
       if (busy) return; busy = true;
-      try { const response = await fetch(url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' }); if (!response.ok) throw new Error(`Server returned ${response.status}.`); const p = parsePacket(await response.json()); accept(p); if (!disposed) { setError(''); setConnected(true); } }
-      catch (e) { if (!disposed) { setConnected(false); setError(e instanceof Error ? e.message : 'Could not reach the API.'); } }
+      try {
+        if (source === 'device' && device) {
+          const p = devicePacket(await deviceApi.latest(accessToken), device.device_id);
+          if (disposed) return;
+          if (p) { accept(p); setReadingDeviceId(device.device_id); }
+          setError(''); setConnected(true);
+        } else {
+          const response = await fetch(url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' }); if (!response.ok) throw new Error(`Server returned ${response.status}.`); const p = parsePacket(await response.json()); accept(p); if (!disposed) { setError(''); setConnected(true); }
+        }
+      }
+      catch (e) { if (!disposed) { if (e instanceof ApiError && e.status === 401) { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); } else { setConnected(false); setError(e instanceof Error ? e.message : 'Could not reach the API.'); } } }
       finally { busy = false; }
     }
     void tick(); const timer = setInterval(() => void tick(), UPDATE_INTERVAL_MS);
     return () => { disposed = true; controller.abort(); clearInterval(timer); };
-  }, [source, paused, url, isAuthenticated]);
+  }, [source, paused, url, isAuthenticated, accessToken, device?.device_id, deviceState.loaded, deviceState.demo]);
   const age = Math.max(0, (clock - Date.parse(packet.timestamp)) / 1000);
   const stale = age > STALE_AFTER_SECONDS;
   const ambient = (packet.Centre + packet.Door + packet['Far wall']) / 3;
@@ -193,16 +287,39 @@ export default function App() {
   const forecast = packet.Centre + slope * 20;
   const warning = gap > 3;
   const updateConfig = (patch: Partial<Config>) => setConfig(c => ({ ...c, ...patch }));
+  function resizeFixture(clientX: number, clientY: number) {
+    const drag = resizingFixture.current;
+    if (!drag || !mapRef.current) return;
+    const rect = mapRef.current.getBoundingClientRect();
+    setConfig(c => {
+      const fixture = c.fixtures[drag.name];
+      const horizontal = fixture.wall === 'Top' || fixture.wall === 'Bottom';
+      const direction = fixture.wall === 'Bottom' || fixture.wall === 'Left' ? -1 : 1;
+      const delta = (horizontal ? clientX - drag.x : clientY - drag.y) * direction * drag.side;
+      const size = Math.round(Math.max(.4, Math.min(1.4, drag.size + delta * 2 * c.width / rect.width)) * 100) / 100;
+      return { ...c, fixtures: { ...c.fixtures, [drag.name]: { ...fixture, size } } };
+    });
+  }
+  function moveFixture(clientX: number, clientY: number, key: Fixture) {
+    const rect = mapRef.current!.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, clientY - rect.top));
+    const walls: [Wall, number][] = [['Top', y], ['Right', rect.width - x], ['Bottom', rect.height - y], ['Left', x]];
+    const wall = walls.reduce((nearest, candidate) => candidate[1] < nearest[1] ? candidate : nearest)[0];
+    const position = Math.max(.16, Math.min(.84, wall === 'Top' || wall === 'Bottom' ? x / rect.width : y / rect.height));
+    setConfig(c => ({ ...c, fixtures: { ...c.fixtures, [key]: { ...c.fixtures[key], wall, position } } }));
+  }
   function moveSensor(clientX: number, clientY: number, key: Sensor) {
     const rect = mapRef.current!.getBoundingClientRect();
-    setConfig(c => ({ ...c, layout: { ...c.layout, [key]: { x: Math.max(.05, Math.min(.95, (clientX - rect.left) / rect.width)), y: Math.max(.05, Math.min(.95, (clientY - rect.top) / rect.height)) } } }));
+    const point = constrainSensor(key, (clientX - rect.left) / rect.width, (clientY - rect.top) / rect.height);
+    setConfig(c => ({ ...c, layout: { ...c.layout, [key]: point } }));
   }
   function changeTemperature(key: Sensor, value: number) {
     demoBase.current[key] = value; const p = { ...packet, [key]: value, timestamp: new Date().toISOString() }; setPacket(p); setHistory(h => [...h, p].slice(-HISTORY_LIMIT));
   }
   function changeSource(value: 'demo' | 'rest') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
   function navigatePage(nextPage: string) { setPage(nextPage); window.scrollTo(0, 0); }
-  function signOut() { setAccountEmail(''); setAccessToken(''); setIsAuthenticated(false); setPage('Overview'); setJumpToSensors(false); window.scrollTo(0, 0); }
+  function signOut() { storeSession(''); setRestoringSession(false); setRestoreError(''); setAccountEmail(''); setAccessToken(''); setIsAuthenticated(false); setPage('Overview'); setJumpToSensors(false); window.scrollTo(0, 0); }
   function sessionError(e: unknown) {
     if (e instanceof ApiError && e.status === 401) { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); }
     throw e;
@@ -219,43 +336,43 @@ export default function App() {
     try { await auth.deleteAccount(accessToken); signOut(); setAuthNotice('Your account has been deleted.'); }
     catch (e) { sessionError(e); }
   }
-  if (!isAuthenticated) return <Login key={authNotice} initialNotice={authNotice} onLogin={(email, token) => { setAccountEmail(email); setAccessToken(token); setAuthNotice(''); setIsAuthenticated(true); navigatePage('Overview'); }}/ >;
+  if (restoringSession) return <main className="login-page"><div className="login-card"><h1>Room Sentinel</h1>{restoreError ? <><p className="login-error" role="alert">{restoreError}</p><button className="login-submit" onClick={() => setRestoreAttempt(attempt => attempt + 1)}>Try again</button><button className="outline-button" onClick={signOut}>Return to sign in</button></> : <p role="status">Restoring your session…</p>}</div></main>;
+  if (!isAuthenticated) return <Login key={authNotice} initialNotice={authNotice} onLogin={(email, token) => { storeSession(token); setAccountEmail(email); setAccessToken(token); setAuthNotice(''); setIsAuthenticated(true); navigatePage('Overview'); }}/>;
   return <div className="app-shell">
     <aside className="sidebar">
-      <a className="brand" href="#" onClick={e => { e.preventDefault(); navigatePage('Overview'); }}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
+      <a className="brand" href="#" onClick={e => { e.preventDefault(); navigatePage('Overview'); }}><img className="brand-logo" src="/logo.png" alt="Room Sentinel"/></a>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Insights', 'bell'], ['Settings', 'settings'], ['Account settings', 'lock']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => { if (title === 'Sensor readings') { setPage('Overview'); setJumpToSensors(true); } else { navigatePage(title); } }}><Icon name={icon}/>{title}{title === 'Insights' && warning && <span className="nav-count">1</span>}</button>)}</nav>
-      <div className="sidebar-room"><span className="tiny-label">CONNECTED ROOM</span><strong><span className="status-dot"/>{config.name}</strong><small>5 temperature sensors</small></div>
+      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Devices', 'room'], ['Settings', 'settings'], ['Account settings', 'lock']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => { if (title === 'Sensor readings') { setPage('Overview'); setJumpToSensors(true); } else { navigatePage(title); } }}><Icon name={icon}/>{title}</button>)}</nav>
+      <div className="sidebar-room"><span className="tiny-label">CONNECTED ROOM</span><strong><span className="status-dot"/>{device ? device.name || device.device_id : deviceState.demo ? config.name : 'No device paired'}</strong><small>{device || deviceState.demo ? '5 temperature sensors' : 'Add your first device'}</small></div>
       <div className="sidebar-bottom"><span className="avatar">{(accountEmail.slice(0, 2) || 'RS').toUpperCase()}</span><div><button className="account-link" onClick={() => navigatePage('Account settings')}>Account</button><small title={accountEmail}>{accountEmail || 'Prototype workspace'}</small></div><button className="logout-button" onClick={signOut} aria-label="Sign out" title="Sign out">Sign out</button></div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><div>{page}</div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'rest' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'REST connected' : 'REST offline'}</span></div></header>
+      <header className="topbar"><div>{page}</div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source !== 'demo' && !connected ? 'muted' : ''}`}/>{!device && !deviceState.demo ? 'No device paired' : source === 'demo' ? 'Demo mode' : source === 'device' ? connected ? 'Device connected' : 'Connecting device' : connected ? 'REST connected' : 'REST offline'}</span></div></header>
       <main>
-        <div className="page-heading"><div><div className="eyebrow">updates: 1s interval</div><h1>{page === 'Overview' ? config.name : page}</h1></div>{page !== 'Account settings' && <button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button>}</div>
-        {(error || stale) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Last received values are shown.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
-        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">REST API</span></div><p className="subtle">Poll one complete package of five sensor readings every second.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'rest')}><option value="demo">Demo simulation</option><option value="rest">REST API</option></select></label><label className="field">Latest readings endpoint<input value={url} onChange={e => setUrl(e.target.value)} type="url"/></label><p className="help">Your backend must allow this website through CORS. Measurements older than 5 seconds are marked stale.</p><h3>Expected response</h3><pre>{JSON.stringify({ Centre: 29.7, Window: 29.9, Heater: 23.8, Door: 23.5, 'Far wall': 30.5, timestamp: '2023-08-19 12:17:55 -0400' }, null, 2)}</pre></section> : <>
+        <div className="page-heading"><div><div className="eyebrow">updates: 1s interval</div><h1>{page === 'Overview' ? config.name : page}</h1></div></div>
+        {(error || (stale && (device ? source === 'device' && readingDeviceId === device.device_id : deviceState.demo))) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Please check your connection or device.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
+        <PairingPanel token={accessToken} onPaired={() => { deviceState.refresh(); navigatePage('Overview'); }} onExpired={() => { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); }}/>{deviceState.error && <div className="connection-warning" role="alert">{deviceState.error} <button className="outline-button" onClick={deviceState.refresh}>Retry</button></div>}{page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Devices' ? <>{!deviceState.loaded && <section className="panel" role="status">Checking your devices…</section>}<DevicesPanel devices={deviceState.devices} token={accessToken} onChange={deviceState.refresh} onShow={id => { deviceState.select(id); setSource('device'); setHistory([]); setReadingDeviceId(''); navigatePage('Overview'); }} onExpired={() => { signOut(); setAuthNotice('Your session has expired. Please sign in again.'); }}/>{deviceState.loaded && !deviceState.devices.length && <AddDevice onDemo={() => { deviceState.setDemo(true); setSource('demo'); navigatePage('Overview'); }}/>}</> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">REST API</span></div><p className="subtle">Poll one complete package of five sensor readings every second.</p><label className="field">Data source<select value={source} disabled={!!device} onChange={e => { if (e.target.value === 'device') setSource('device'); else changeSource(e.target.value as 'demo' | 'rest'); }}> {device && <option value="device">Paired device</option>}<option value="demo">Demo simulation</option><option value="rest">REST API</option></select></label><label className="field">Latest readings endpoint<input value={url} onChange={e => setUrl(e.target.value)} type="url"/></label><p className="help">Your backend must allow this website through CORS. Measurements older than 5 seconds are marked stale.</p><h3>Expected response</h3><pre>{JSON.stringify({ Centre: 29.7, Window: 29.9, Heater: 23.8, Door: 23.5, 'Far wall': 30.5, timestamp: '2023-08-19 12:17:55 -0400' }, null, 2)}</pre></section> : !deviceState.loaded ? <section className="panel" role="status">{deviceState.error ? 'Unable to load your devices. Use Retry above.' : 'Checking your devices…'}</section> : !device && !deviceState.demo ? <AddDevice onDemo={() => { deviceState.setDemo(true); setSource('demo'); navigatePage('Overview'); }}/> : device && (source !== 'device' || readingDeviceId !== device.device_id) ? <section className="panel" role="status"><h2>Waiting for {device.name || device.device_id} to send readings</h2><p className="help">Your device is paired. Live readings will appear here automatically.</p></section> : <>
         <div className="metrics-row">
           <div className="metric-card"><span className="metric-title">Room centre <Icon name="temp" size={17}/></span><strong>{packet.Centre.toFixed(1)}<span>°C</span></strong><small className={Math.abs(packet.Centre - config.target) <= 2 ? 'positive' : 'amber'}>{packet.Centre < config.target - 2 ? 'Below comfort range' : packet.Centre > config.target + 2 ? 'Above comfort range' : 'Within comfort range'} <span className="subtle">· Target {config.target}°</span></small></div>
           <div className="metric-card"><span className="metric-title">Temperature spread <Icon name="pulse" size={17}/></span><strong>{(Math.max(...keys.map(k => packet[k])) - Math.min(...keys.map(k => packet[k]))).toFixed(1)}<span>°C</span></strong><small className="subtle">Warmest to coolest sensor</small></div>
           <div className="metric-card"><span className="metric-title">20-minute outlook <Icon name="arrow" size={17}/></span><strong>{forecast.toFixed(1)}<span>°C</span></strong><small className="subtle">{slope < -.01 ? '↓ Cooling' : slope > .01 ? '↑ Warming' : '→ Mostly steady'} · Basic trend estimate</small></div>
           <div className="metric-card"><span className="metric-title">Sensor health <Icon name="check" size={17}/></span><strong>{stale ? '—' : '5'}<span>/ 5</span></strong><small className={stale ? 'amber' : 'positive'}><span className={`status-dot ${stale ? 'muted' : ''}`}/>{stale ? 'Waiting for fresh readings' : 'All sensors reporting'}</small></div>
         </div>
-        {page === 'Overview' && <div className="overview-grid"><section className="panel room-panel"><div className="panel-title"><div><h2>Room Thermal Field <span className="badge">TOP VIEW</span></h2><p>{config.name} <span className="separator">·</span> {config.width} × {config.length} m <span className="separator">·</span> {(config.width * config.length).toFixed(1)} m²</p></div></div>
-          <div className="room-stage"><div className="dimension width-dimension">{config.width.toFixed(1)} m</div><div className="floor" ref={mapRef} style={{ aspectRatio: `${config.width}/${config.length}` }} onPointerMove={e => { if (dragging.current) moveSensor(e.clientX, e.clientY, dragging.current); }} onPointerUp={() => { dragging.current = null; }} onPointerCancel={() => { dragging.current = null; }}>
-            <Heatmap config={config} packet={packet} visible={gradient}/><div className="floor-grid"/><div className="window-fixture"/><div className="heater-fixture">{Array.from({ length: 6 }, (_, i) => <i key={i}/>)}</div><div className="door-fixture"/><div className="room-name">{config.name}<small>{(config.width * config.length).toFixed(1)} m²</small></div>
-            {keys.map(k => <button key={k} className={`sensor-marker ${selected === k ? 'selected' : ''} ${editing ? 'draggable' : ''}`} style={{ left: `${config.layout[k].x * 100}%`, top: `${config.layout[k].y * 100}%`, '--sensor-color': colors[k] } as React.CSSProperties} onClick={() => setSelected(k)} onPointerDown={e => { setSelected(k); if (editing) { e.preventDefault(); dragging.current = k; mapRef.current!.setPointerCapture(e.pointerId); } }} onKeyDown={e => { if (!editing || !e.key.startsWith('Arrow')) return; e.preventDefault(); const p = config.layout[k]; updateConfig({ layout: { ...config.layout, [k]: { x: Math.max(.05, Math.min(.95, p.x + (e.key === 'ArrowRight' ? .02 : e.key === 'ArrowLeft' ? -.02 : 0))), y: Math.max(.05, Math.min(.95, p.y + (e.key === 'ArrowDown' ? .02 : e.key === 'ArrowUp' ? -.02 : 0))) } } }); }} aria-label={`${k}: ${packet[k]} degrees Celsius${editing ? '. Drag or use arrow keys to reposition.' : ''}`}><span className="sensor-dot"/><span className="sensor-label"><span className="sensor-id">S-0{keys.indexOf(k) + 1}</span>{k === 'Centre' ? 'Room centre' : k}<strong>{packet[k].toFixed(1)}°<span>C</span></strong></span></button>)}
+        {page === 'Overview' && <div className="overview-grid"><section className="panel room-panel"><div className="panel-title"><div><h2>Room Thermal Field <span className="badge">TOP VIEW</span></h2><p>{config.name} <span className="separator">·</span> {config.width} × {config.length} m <span className="separator">·</span> {(config.width * config.length).toFixed(1)} m²</p></div><button className="outline-button room-edit-button" onClick={() => setEditing(value => !value)}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button></div>
+          <div className="room-stage"><div className="dimension width-dimension">{config.width.toFixed(1)} m</div><div className="floor" ref={mapRef} style={{ aspectRatio: `${config.width}/${config.length}` }} onPointerMove={e => { if (resizingFixture.current) resizeFixture(e.clientX, e.clientY); if (dragging.current) moveSensor(e.clientX, e.clientY, dragging.current); if (draggingFixture.current) moveFixture(e.clientX, e.clientY, draggingFixture.current); }} onPointerUp={() => { dragging.current = null; draggingFixture.current = null; resizingFixture.current = null; }} onPointerCancel={() => { dragging.current = null; draggingFixture.current = null; resizingFixture.current = null; }}>
+            <Heatmap config={config} packet={packet} visible={gradient}/><div className="floor-grid"/>{fixtureKeys.map(name => <RoomFixture key={name} name={name} value={config.fixtures[name]} width={config.width} length={config.length} editing={editing} selected={selectedFixture === name} onSelect={() => setSelectedFixture(name)} onDragStart={e => { if (!editing || e.button !== 0) return; e.preventDefault(); setSelectedFixture(name); draggingFixture.current = name; mapRef.current!.setPointerCapture(e.pointerId); }} onResizeStart={(e, side) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); resizingFixture.current = { name, side, x: e.clientX, y: e.clientY, size: config.fixtures[name].size }; mapRef.current!.setPointerCapture(e.pointerId); }}/>)}<div className="room-name">{config.name}<small>{(config.width * config.length).toFixed(1)} m²</small></div>
+            {keys.map(k => <button key={k} ref={element => { if (element) sensorRefs.current[k] = element; else delete sensorRefs.current[k]; }} className={`sensor-marker ${selected === k ? 'selected' : ''} ${editing ? 'draggable' : ''}`} style={{ left: `${config.layout[k].x * 100}%`, top: `${config.layout[k].y * 100}%`, '--sensor-color': colors[k] } as React.CSSProperties} onClick={() => setSelected(k)} onPointerDown={e => { setSelected(k); if (editing) { e.preventDefault(); dragging.current = k; mapRef.current!.setPointerCapture(e.pointerId); } }} onKeyDown={e => { if (!editing || !e.key.startsWith('Arrow')) return; e.preventDefault(); const p = config.layout[k]; updateConfig({ layout: { ...config.layout, [k]: constrainSensor(k, p.x + (e.key === 'ArrowRight' ? .02 : e.key === 'ArrowLeft' ? -.02 : 0), p.y + (e.key === 'ArrowDown' ? .02 : e.key === 'ArrowUp' ? -.02 : 0)) } }); }} aria-label={`${k}: ${packet[k]} degrees Celsius${editing ? '. Drag or use arrow keys to reposition.' : ''}`}><span className="sensor-dot"/><span className="sensor-label"><span className="sensor-id">S-0{keys.indexOf(k) + 1}</span>{k === 'Centre' ? 'Room centre' : k}<strong>{packet[k].toFixed(1)}°<span>C</span></strong></span></button>)}
           </div><div className="dimension length-dimension">{config.length.toFixed(1)} m</div></div>
-          <div className="map-footer"><label className="toggle-label"><input type="checkbox" checked={gradient} onChange={e => setGradient(e.target.checked)}/><span className="toggle"/>Temperature overlay</label><div className="color-legend"><span>15°</span><i/><span>35°</span></div></div><p className="map-note">{editing ? 'Drag a sensor to reposition it. Layout saves automatically.' : 'An estimated temperature field from five point readings. Select a sensor to explore.'}</p>
+          <div className="map-footer"><label className="toggle-label"><input type="checkbox" checked={gradient} onChange={e => setGradient(e.target.checked)}/><span className="toggle"/>Temperature overlay</label><div className="color-legend"><span>15°</span><i/><span>35°</span></div></div><p className="map-note">{editing ? 'Drag sensors or fixtures to reposition them. Fixtures snap to the nearest wall. Layout saves automatically.' : 'An estimated temperature field from five point readings. Select a sensor to explore.'}</p>
         </section><aside className="right-column">
           {editing ? <section className="panel editor-panel"><div className="panel-title"><h2>Make it your room</h2><span className="badge">EDITING</span></div><label className="field">Room name<input value={config.name} maxLength={30} onChange={e => updateConfig({ name: e.target.value })}/></label><div className="two-fields"><label className="field">Width (m)<input type="number" min="2" max="12" step=".5" value={config.width} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ width: n }); }}/></label><label className="field">Length (m)<input type="number" min="2" max="12" step=".5" value={config.length} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ length: n }); }}/></label></div><label className="field">Comfort target · {config.target}°C<input type="range" min="16" max="28" step=".5" value={config.target} onChange={e => updateConfig({ target: Number(e.target.value) })}/></label><button className="outline-button full" onClick={() => updateConfig({ layout: defaults })}><Icon name="reset" size={16}/>Reset sensor positions</button></section> : <section className="panel comfort-panel"><div className="panel-title"><h2>General</h2></div><div className="comfort-gauge"><Icon name="room" size={27}/><strong>{ambient.toFixed(1)}<span>°C</span></strong><small title="The arithmetic mean of Centre, Door, and Far wall. Window and Heater readings are excluded because they measure local cold and hot spots.">Ambient sensor average</small><small>Centre · Door · Far wall</small></div><div className="comfort-summary"><span className="status-dot"/>{Math.abs(ambient - config.target) <= 2 ? 'Your room feels comfortable' : ambient < config.target ? 'Room is below your target' : 'Room is above your target'}</div><div className="condition-row"><span>Comfort target</span><strong>{config.target.toFixed(1)}°C</strong></div><div className="condition-row"><span>Window difference</span><strong className={warning ? 'amber' : ''}>{Math.abs(gap).toFixed(1)}°C {gap >= 0 ? 'cooler' : 'warmer'}</strong></div></section>}
-          <section className="insight-card"><span className="insight-kicker"><Icon name="pulse" size={17}/>ROOM INSIGHT</span><h3>{warning ? 'A cooler spot by the window' : 'A balanced room'}</h3><p>{warning ? `The window sensor is ${gap.toFixed(1)}°C cooler than the centre. This may indicate heat loss around the window.` : 'The centre and window readings are close. Keep an eye on how they change over time.'}</p><button onClick={() => navigatePage('Insights')}>Explore insights <span>↗</span></button></section>
+          <section className="insight-card"><span className="insight-kicker"><Icon name="pulse" size={17}/>ROOM INSIGHT</span><h3>{warning ? 'A cooler spot by the window' : 'A balanced room'}</h3><p>{warning ? `The window sensor is ${gap.toFixed(1)}°C cooler than the centre. This may indicate heat loss around the window.` : 'The centre and window readings are close. Keep an eye on how they change over time.'}</p></section>
         </aside></div>}
-        {page === 'Insights' && <section className="panel insights-page"><div className="panel-title"><h2>Thermal observations</h2><span className="badge">RULE BASED</span></div><h3>{warning ? 'Possible heat loss near the window' : 'Window temperature is close to the centre'}</h3><p>The centre is {packet.Centre.toFixed(1)}°C and the window is {packet.Window.toFixed(1)}°C. {warning ? 'Check the window seal and whether the window is open.' : 'No large window temperature difference is currently detected.'}</p><h3>Temperature outlook</h3><p>The centre trend is {(slope * 10).toFixed(2)}°C per 10 minutes. If that trend continues, the centre may reach {forecast.toFixed(1)}°C in 20 minutes.</p><p className="help">These observations use simple temperature comparisons and a linear trend. They are approximate and do not establish the cause of a change.</p></section>}
-        {page !== 'Insights' && <section className="panel history-panel"><div className="panel-title"><div><h2>Thermal Telemetry History</h2><p>Continuous temperature readings across room zones.</p></div><div className="segmented">{[5, 15, 30].map(n => <button key={n} className={minutes === n ? 'chosen' : ''} onClick={() => setMinutes(n)}>{n} min</button>)}</div></div><div className="chart-legend">{keys.map(k => <span key={k}><i style={{ background: colors[k] }}/>{k === 'Centre' ? 'Room centre' : k}</span>)}</div><History history={history} minutes={minutes}/></section>}
-        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Latest REST package'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
+        <section className="panel history-panel"><div className="panel-title"><div><h2>Thermal Telemetry History</h2><p>Continuous temperature readings across room zones.</p></div><div className="segmented">{[5, 15, 30].map(n => <button key={n} className={minutes === n ? 'chosen' : ''} onClick={() => setMinutes(n)}>{n} min</button>)}</div></div><div className="chart-legend">{keys.map(k => <span key={k}><i style={{ background: colors[k] }}/>{k === 'Centre' ? 'Room centre' : k}</span>)}</div><History history={history} minutes={minutes}/></section>
+        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : source === 'device' ? 'Latest device readings' : 'Latest REST package'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
         <section className="demo-strip"><div><strong>{selected === 'Centre' ? 'Room centre' : selected} sensor</strong><span>{source === 'demo' ? 'Adjust a demo reading to explore the temperature map.' : `Measured at ${new Date(packet.timestamp).toLocaleTimeString()}`}</span></div>{source === 'demo' && <><input aria-label={`${selected} demo temperature`} type="range" min="5" max="45" step=".1" value={packet[selected]} onChange={e => changeTemperature(selected, Number(e.target.value))}/><strong>{packet[selected].toFixed(1)}°C</strong></>}<button className="outline-button" onClick={() => setPaused(!paused)}><Icon name={paused ? 'play' : 'pause'} size={15}/>{paused ? 'Resume' : 'Pause'}</button></section>
         </>}
-        <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every second' : 'REST data · polling every second'}</span></footer>
+        <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every second' : source === 'device' ? 'Device readings · updates every second' : 'REST data · polling every second'}</span></footer>
       </main>
     </div>
   </div>;

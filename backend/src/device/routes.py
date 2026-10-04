@@ -3,7 +3,7 @@ Device and pairing routes.
 
 Two kinds of caller:
 - The controller (ESP32) authenticates with its serial number and manufacturing secret
-  in the request body. It never sees or sends a user's password.
+  in the request body. Its first pairing call registers an unknown serial. It never sees or sends a user's password.
 - The user's browser authenticates with the normal bearer token from POST /token.
 """
 
@@ -11,13 +11,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 
-from src.auth.dependencies import get_current_staff_user, get_current_user
+from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.database import get_repository
 from src.sentinel.profiles import PROFILES
 from .live import connections
 from .schemas import (
-    DeviceCreate,
     DeviceCredentials,
     DeviceToken,
     DeviceUpdate,
@@ -147,21 +146,3 @@ async def unpair_device(device_id: str, user: UserDep, service: ServiceDep, back
     # The token is revoked; drop the connection it opened. Runs after the commit.
     background.add_task(connections.disconnect, device_id)
 
-
-# ---------------------------------------------------------------------------
-# Factory provisioning
-# ---------------------------------------------------------------------------
-
-@router.post(
-    "/devices",
-    response_model=ReadDevice,
-    status_code=status.HTTP_201_CREATED,
-    summary="Provision a manufactured device (staff only)",
-    dependencies=[Depends(get_current_staff_user)],
-)
-async def provision_device(payload: DeviceCreate, service: ServiceDep) -> ReadDevice:
-    try:
-        device = await service.provision(device_id=payload.device_id, secret=payload.secret)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
-    return ReadDevice.model_validate(device)

@@ -38,7 +38,7 @@ SECRET = "factory-secret-0123456789"
 
 
 def run(test):
-    """Run an async test body with a fresh schema, two users and one provisioned device."""
+    """Run an async test body with a fresh schema, two users and one registered device."""
     async def main():
         engine = create_async_engine(database_url(), poolclass=NullPool)
         async with engine.begin() as conn:
@@ -48,7 +48,7 @@ def run(test):
         async with AsyncSession(engine, expire_on_commit=False) as session:
             session.add_all([User(id=1, email="a@x.io", hashed_password="-"), User(id=2, email="b@x.io", hashed_password="-")])
             await session.flush()
-            await DeviceService(session).provision(device_id=SERIAL, secret=SECRET)
+            await DeviceService(session).start_pairing(device_id=SERIAL, secret=SECRET)
             await session.commit()
             try:
                 await test(DeviceService(session), session)
@@ -94,7 +94,7 @@ def test_wrong_secret_or_unknown_serial_is_rejected():
         with pytest.raises(DeviceAuthError):
             await service.start_pairing(device_id=SERIAL, secret="wrong")
         with pytest.raises(DeviceAuthError):
-            await service.start_pairing(device_id="SN-NOPE", secret=SECRET)
+            await service.claim_token(code="nope", device_id="SN-NOPE", secret=SECRET)
         pairing, _ = await service.start_pairing(device_id=SERIAL, secret=SECRET)
         await service.confirm(code=pairing.id, user_id=1)
         with pytest.raises(DeviceAuthError):
@@ -104,7 +104,7 @@ def test_wrong_secret_or_unknown_serial_is_rejected():
 
 def test_token_for_another_devices_code_is_refused():
     async def body(service, _):
-        await service.provision(device_id="SN-0002", secret=SECRET)
+        await service.start_pairing(device_id="SN-0002", secret=SECRET)
         pairing, _ = await service.start_pairing(device_id=SERIAL, secret=SECRET)
         await service.confirm(code=pairing.id, user_id=1)
         with pytest.raises(PairingNotFound):
@@ -194,4 +194,16 @@ def test_new_owner_does_not_see_previous_owners_history():
         assert device.paired_at > old
         second = await DatabaseHistory(session, since=device.paired_at).readings(SERIAL, 60)
         assert [p["Centre"] for p in second["points"]] == [25.0]
+    run(body)
+
+
+def test_first_contact_registers_and_locks_the_secret():
+    async def body(service, _):
+        assert await service.get("SN-NEW") is None
+        await service.start_pairing(device_id="SN-NEW", secret=SECRET)
+        device = await service.get("SN-NEW")
+        assert device is not None and device.user_id is None
+        assert device.secret_hash != SECRET  # only the hash is stored
+        with pytest.raises(DeviceAuthError):
+            await service.start_pairing(device_id="SN-NEW", secret="another-secret-0123456789")
     run(body)

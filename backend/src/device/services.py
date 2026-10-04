@@ -1,11 +1,13 @@
-"""Device provisioning and the account pairing flow.
+"""Device registration and the account pairing flow.
 
     device  -> start_pairing(serial, secret)      -> pairing URL (shown as QR code)
     user    -> get_pairing(code) / confirm(code)  -> device linked to the account
     device  -> claim_token(code, serial, secret)  -> device token, delivered once
 
 The user's password only ever reaches the server. The device proves itself with its
-manufacturing secret until it holds a device token.
+manufacturing secret until it holds a device token. There is no factory step: the first
+start_pairing for an unknown serial registers it with the secret it presents, and every later
+call for that serial must present the same secret.
 """
 
 import hashlib
@@ -17,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert
 
 from src.services import BaseService
 from .models import Device, PairingSession
@@ -68,18 +70,17 @@ class DeviceService(BaseService):
         """Resolve a device token. For authenticating the device's telemetry connection."""
         return await self.session.scalar(select(Device).where(Device.token_hash == _hash(token)))
 
-    async def provision(self, *, device_id: str, secret: str) -> Device:
-        """Record a newly manufactured device and its secret."""
-        device = Device(device_id=device_id, secret_hash=_hash(secret))
-        self.session.add(device)
-        try:
-            await self.session.flush()
-        except IntegrityError:
-            await self.session.rollback()
-            raise ValueError("A device with that serial number already exists.")
-        await self.session.refresh(device)
-        logger.info("Device %r provisioned.", device_id)
-        return device
+    async def _register(self, device_id: str, secret: str) -> None:
+        """Record an unknown serial with the secret it first presents. No-op if it already exists."""
+        # ON CONFLICT makes two simultaneous first contacts safe: one inserts, the other
+        # then authenticates against the stored secret like any later call.
+        result = await self.session.execute(
+            insert(Device)
+            .values(device_id=device_id, secret_hash=_hash(secret))
+            .on_conflict_do_nothing(index_elements=[Device.device_id])
+        )
+        if result.rowcount:
+            logger.info("Device %r registered on first contact.", device_id)
 
     async def update_settings(self, *, device_id: str, user_id: int, changes: dict) -> Device:
         """Apply owner-editable settings (name, target and limit temperatures) to the user's device."""
@@ -120,7 +121,11 @@ class DeviceService(BaseService):
     # -----------------------------------------------------------------------
 
     async def start_pairing(self, *, device_id: str, secret: str) -> tuple[PairingSession, str]:
-        """Open a pairing session for the device. Any earlier open session for it stops working."""
+        """
+        Open a pairing session for the device, registering it first if the serial is new.
+        Any earlier open session for it stops working.
+        """
+        await self._register(device_id, secret)
         device = await self._authenticate(device_id, secret)
         now = datetime.now(timezone.utc)
 

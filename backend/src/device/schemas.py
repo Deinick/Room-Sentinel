@@ -13,16 +13,13 @@ class _OrmBase(BaseModel):
 # Device - request bodies
 # ---------------------------------------------------------------------------
 
-class DeviceCreate(_OrmBase):
-    """Factory provisioning payload (staff only). The secret is flashed into the device and never returned."""
+class DeviceCredentials(_OrmBase):
+    """
+    How a device proves who it is before it has a device token. The first call for a
+    serial registers this secret, so it must be long enough not to be guessed.
+    """
     device_id: str = Field(min_length=1)
     secret: str = Field(min_length=16)
-
-
-class DeviceCredentials(_OrmBase):
-    """How a device proves who it is before it has a device token."""
-    device_id: str = Field(min_length=1)
-    secret: str = Field(min_length=1)
 
 
 class DeviceUpdate(_OrmBase):

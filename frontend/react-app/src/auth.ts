@@ -39,7 +39,10 @@ export const auth = {
   currentUser: (token: string) => request<User>('/users/me', 'GET', undefined, token),
   changePassword: (token: string, password: string) => request<User>('/users/me', 'PUT', { password1: password, password2: password }, token),
   deleteAccount: (token: string) => request<void>('/users/me', 'DELETE', undefined, token),
+  devices: (token: string) => request<Device[]>('/devices', 'GET', undefined, token),
 };
+
+export type Device = { device_id: string; name: string | null };
 
 export type LiveReading = { time: string; mode: 'demo' | 'device'; age_seconds: number; live: boolean; sensors: Record<string, { temp: number | null; status: string }> };
 export type LiveFrame = { latest: Record<string, LiveReading>; issues: unknown[] };

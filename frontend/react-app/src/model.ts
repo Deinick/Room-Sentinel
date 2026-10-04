@@ -23,12 +23,13 @@ export function temperatureColor(t: number): [number, number, number] {
   const ratio = (value - a[0]) / (b[0] - a[0]);
   return [1, 2, 3].map(i => Math.round(a[i] + (b[i] - a[i]) * ratio)) as [number, number, number];
 }
-/** The dashboard shows one room: the first real device, else the first demo device. A sensor without a value keeps its previous one. */
-export function packetFromLive(latest: Record<string, { time: string; mode: string; age_seconds: number; sensors: Record<string, { temp: number | null }> }>, previous: Packet): { packet: Packet; time: string } | null {
-  const readings = Object.values(latest);
-  const reading = readings.find(r => r.mode === 'device') ?? readings[0];
-  if (!reading) return null;
+/** The dashboard shows one room: the chosen device if it is in the stream, else the first real device, else the first demo device. A sensor without a value keeps its previous one. */
+export function packetFromLive(latest: Record<string, { time: string; mode: string; age_seconds: number; sensors: Record<string, { temp: number | null }> }>, previous: Packet, chosen: string | null): { deviceId: string; packet: Packet; time: string } | null {
+  const entries = Object.entries(latest);
+  const entry = (chosen !== null && latest[chosen] ? [chosen, latest[chosen]] as const : undefined) ?? entries.find(([, r]) => r.mode === 'device') ?? entries[0];
+  if (!entry) return null;
+  const [deviceId, reading] = entry;
   // Arrival time, not reading.time: the demo device's clock can run faster than real time.
   const timestamp = new Date(Date.now() - reading.age_seconds * 1000).toISOString();
-  return { time: reading.time, packet: { ...Object.fromEntries(keys.map(k => [k, reading.sensors[k]?.temp ?? previous[k]])), timestamp } as Packet };
+  return { deviceId, time: reading.time, packet: { ...Object.fromEntries(keys.map(k => [k, reading.sensors[k]?.temp ?? previous[k]])), timestamp } as Packet };
 }

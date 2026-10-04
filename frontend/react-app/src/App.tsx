@@ -162,6 +162,10 @@ export default function App() {
   const [editing, setEditing] = useState(false), [selected, setSelected] = useState<Sensor>('Centre');
   const [gradient, setGradient] = useState(true), [paused, setPaused] = useState(false), [minutes, setMinutes] = useState(30);
   const [source, setSource] = useState<'demo' | 'live'>('demo');
+  // Rooms in the live stream (device id -> mode), the one shown, and display names from GET /devices.
+  const [liveRooms, setLiveRooms] = useState<Record<string, string>>({}), [deviceId, setDeviceId] = useState<string | null>(null);
+  const [deviceNames, setDeviceNames] = useState<Record<string, string>>({});
+  const chosenDevice = useRef<string | null>(null);
   const [error, setError] = useState(''), [connected, setConnected] = useState(false), [clock, setClock] = useState(Date.now());
   const mapRef = useRef<HTMLDivElement>(null), dragging = useRef<Sensor | null>(null);
   const demoBase = useRef<Record<Sensor, number>>({ ...initial });
@@ -177,15 +181,19 @@ export default function App() {
       return () => { disposed = true; clearInterval(timer); };
     }
     // Frames repeat the same reading while nothing changes; only a new reading time is a new point.
-    let lastTime = '', current = packet;
+    let lastTime = '', lastDevice = '', current = packet;
+    auth.devices(accessToken).then(list => { if (!disposed) setDeviceNames(Object.fromEntries(list.map(d => [d.device_id, d.name || d.device_id]))); }).catch(() => { /* Serials stand in for names. */ });
     async function follow() {
       while (!disposed) {
         try {
           await streamLive(accessToken, controller.signal, frame => {
             if (disposed) return;
             setConnected(true); setError('');
-            const next = packetFromLive(frame.latest, current);
+            const rooms = Object.fromEntries(Object.entries(frame.latest).map(([id, r]) => [id, r.mode]));
+            setLiveRooms(prev => JSON.stringify(prev) === JSON.stringify(rooms) ? prev : rooms);
+            const next = packetFromLive(frame.latest, current, chosenDevice.current);
             if (!next) { setError('No device is sending readings yet.'); return; }
+            if (next.deviceId !== lastDevice) { lastDevice = next.deviceId; lastTime = ''; setDeviceId(next.deviceId); }
             if (next.time === lastTime) return;
             lastTime = next.time; current = next.packet; accept(next.packet);
           });
@@ -218,6 +226,8 @@ export default function App() {
   function changeTemperature(key: Sensor, value: number) {
     demoBase.current[key] = value; const p = { ...packet, [key]: value, timestamp: new Date().toISOString() }; setPacket(p); setHistory(h => [...h, p].slice(-HISTORY_LIMIT));
   }
+  // The stream keeps running; the next frame shows the chosen room. Its history starts over so rooms never mix.
+  function changeDevice(id: string) { chosenDevice.current = id; setDeviceId(id); setHistory([{ ...packet }]); }
   function changeSource(value: 'demo' | 'live') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
   function navigatePage(nextPage: string) { setPage(nextPage); window.scrollTo(0, 0); }
   function signOut() { setAccountEmail(''); setAccessToken(''); setIsAuthenticated(false); setPage('Overview'); setJumpToSensors(false); window.scrollTo(0, 0); }
@@ -251,7 +261,7 @@ export default function App() {
       <main>
         <div className="page-heading"><div><div className="eyebrow">{source === 'demo' ? 'updates: 1s interval' : 'updates: live stream'}</div><h1>{page === 'Overview' ? config.name : page}</h1></div>{page !== 'Account settings' && <button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button>}</div>
         {(error || stale) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Last received values are shown.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
-        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">Live stream</span></div><p className="subtle">Show the demo simulation, or stream readings from the devices on your account.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'live')}><option value="demo">Demo simulation</option><option value="live">My devices</option></select></label><p className="help">Readings arrive as they are measured. Measurements older than 5 seconds are marked stale.</p></section> : <>
+        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">Live stream</span></div><p className="subtle">Show the demo simulation, or stream readings from the devices on your account.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'live')}><option value="demo">Demo simulation</option><option value="live">My devices</option></select></label>{source === 'live' && Object.keys(liveRooms).length > 0 && <label className="field">Device<select value={deviceId ?? ''} onChange={e => changeDevice(e.target.value)}>{Object.entries(liveRooms).map(([id, mode]) => <option key={id} value={id}>{deviceNames[id] ?? id}{mode === 'demo' ? ' (simulated)' : ''}</option>)}</select></label>}<p className="help">Readings arrive as they are measured. Measurements older than 5 seconds are marked stale.</p></section> : <>
         <div className="metrics-row">
           <div className="metric-card"><span className="metric-title">Room centre <Icon name="temp" size={17}/></span><strong>{packet.Centre.toFixed(1)}<span>°C</span></strong><small className={Math.abs(packet.Centre - config.target) <= 2 ? 'positive' : 'amber'}>{packet.Centre < config.target - 2 ? 'Below comfort range' : packet.Centre > config.target + 2 ? 'Above comfort range' : 'Within comfort range'} <span className="subtle">· Target {config.target}°</span></small></div>
           <div className="metric-card"><span className="metric-title">Temperature spread <Icon name="pulse" size={17}/></span><strong>{(Math.max(...keys.map(k => packet[k])) - Math.min(...keys.map(k => packet[k]))).toFixed(1)}<span>°C</span></strong><small className="subtle">Warmest to coolest sensor</small></div>
@@ -270,7 +280,7 @@ export default function App() {
         </aside></div>}
         {page === 'Insights' && <section className="panel insights-page"><div className="panel-title"><h2>Thermal observations</h2><span className="badge">RULE BASED</span></div><h3>{warning ? 'Possible heat loss near the window' : 'Window temperature is close to the centre'}</h3><p>The centre is {packet.Centre.toFixed(1)}°C and the window is {packet.Window.toFixed(1)}°C. {warning ? 'Check the window seal and whether the window is open.' : 'No large window temperature difference is currently detected.'}</p><h3>Temperature outlook</h3><p>The centre trend is {(slope * 10).toFixed(2)}°C per 10 minutes. If that trend continues, the centre may reach {forecast.toFixed(1)}°C in 20 minutes.</p><p className="help">These observations use simple temperature comparisons and a linear trend. They are approximate and do not establish the cause of a change.</p></section>}
         {page !== 'Insights' && <section className="panel history-panel"><div className="panel-title"><div><h2>Thermal Telemetry History</h2><p>Continuous temperature readings across room zones.</p></div><div className="segmented">{[5, 15, 30].map(n => <button key={n} className={minutes === n ? 'chosen' : ''} onClick={() => setMinutes(n)}>{n} min</button>)}</div></div><div className="chart-legend">{keys.map(k => <span key={k}><i style={{ background: colors[k] }}/>{k === 'Centre' ? 'Room centre' : k}</span>)}</div><History history={history} minutes={minutes}/></section>}
-        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Live device readings'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
+        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : deviceId ? `Live readings · ${deviceNames[deviceId] ?? deviceId}` : 'Live device readings'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
         <section className="demo-strip"><div><strong>{selected === 'Centre' ? 'Room centre' : selected} sensor</strong><span>{source === 'demo' ? 'Adjust a demo reading to explore the temperature map.' : `Measured at ${new Date(packet.timestamp).toLocaleTimeString()}`}</span></div>{source === 'demo' && <><input aria-label={`${selected} demo temperature`} type="range" min="5" max="45" step=".1" value={packet[selected]} onChange={e => changeTemperature(selected, Number(e.target.value))}/><strong>{packet[selected].toFixed(1)}°C</strong></>}<button className="outline-button" onClick={() => setPaused(!paused)}><Icon name={paused ? 'play' : 'pause'} size={15}/>{paused ? 'Resume' : 'Pause'}</button></section>
         </>}
         <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every second' : 'Live data · streamed as measured'}</span></footer>

@@ -77,6 +77,10 @@ button { cursor: pointer; }
   pointer-events: none;
   z-index: -1;
 }
+/* In panels that scroll, the edge layers would scroll with the content and leave a line across it.
+   The border and inset shadows above still draw the edge there. */
+.drawer.glass::before, .drawer.glass::after,
+.auth-card.glass::before, .auth-card.glass::after { display: none; }
 
 /* ---------------------------------------------------------------- loader */
 .loader {
@@ -309,10 +313,6 @@ body.ui-hidden [data-reveal], body.ui-hidden .credit { opacity: 0; translate: 0 
 .auth-switch button { border: 0; background: none; color: var(--accent); font-weight: 500; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(185,220,255,.4); }
 .auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--text-3); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-.auth-server { margin-top: 14px; font-size: 12px; color: var(--text-3); }
-.auth-server summary { cursor: pointer; list-style: none; }
-.auth-server summary::before { content: "▸ "; }
-.auth-server[open] summary::before { content: "▾ "; }
 .auth-foot { margin: 14px 0 0; font-size: 11.5px; color: var(--text-3); }
 .form-msg { margin: 12px 0 0; font-size: 12.5px; color: var(--ok); }
 .form-msg.error { color: var(--crit); }

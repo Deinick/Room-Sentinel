@@ -6,7 +6,10 @@
 //   PUT  /users/me {password1, password2} -> change password
 //   DELETE /users/me                      -> delete account
 
-export const DEFAULT_API = 'https://stormhacks.onrender.com';
+// The local docker stack (docker-compose.yml) serves the API on :8000 next to the page.
+export const DEFAULT_API = ['localhost', '127.0.0.1'].includes(globalThis.location?.hostname)
+  ? `http://${location.hostname}:8000`
+  : 'https://stormhacks.onrender.com';
 
 export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }

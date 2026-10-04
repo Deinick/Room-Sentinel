@@ -478,7 +478,6 @@ let authMode = 'login';
 let pendingCode = pairingCodeFromUrl();
 let watchTimer = null;
 let expiryTimer = null;
-$('auth-api').value = store.get('api-url') || DEFAULT_API;
 $('auth-email').value = store.get('api-email') || '';
 
 function showGate(id) {
@@ -553,7 +552,7 @@ $('auth-form').addEventListener('submit', async e => {
   if (authMode === 'register' && password !== $('auth-confirm').value) return authMessage('The passwords do not match.', true);
   const button = $('auth-submit');
   button.disabled = true;
-  const api = accountApi($('auth-api').value.trim() || DEFAULT_API);
+  const api = accountApi(DEFAULT_API);
   try {
     if (authMode === 'register') {
       authMessage('Creating your account… (the server may take a moment to wake up)', false);
@@ -565,7 +564,6 @@ $('auth-form').addEventListener('submit', async e => {
       authMessage('Signing in… (the server may take a moment to wake up)', false);
       const token = await api.token(email, password);
       const user = await api.currentUser(token);
-      store.set('api-url', api.base);
       store.set('api-email', user.email);
       $('auth-password').value = '';
       await startSession(api, token, user.email);

@@ -1,0 +1,20 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "server_link.c"
+        "uart_link.c"
+        "wifi_provisioning.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        esp_http_client
+        esp_event
+        esp_app_format
+        esp_http_server
+        esp_netif
+        esp_wifi
+        esp_websocket_client
+        cjson
+        mbedtls
+        nvs_flash
+        esp_driver_uart
+)

@@ -276,9 +276,11 @@ select option { background: #141a22; }
 .labels-hidden .label3d { opacity: 0; pointer-events: none; }
 
 /* ---------------------------------------------------------------- scene states */
-#scene { transition: filter .9s var(--ease); }
+#scene { transition: filter .9s var(--ease), transform .9s var(--ease); }
 body.signing-in #scene { filter: brightness(.72) saturate(.9); }
-body.plan-mode #scene { filter: brightness(.42) saturate(.65); }
+/* 2D: the whole room melts into a soft blur behind the plan. The slight zoom hides the blur's
+   faded edges, and the blurred room can't be dragged. */
+body.plan-mode #scene { filter: blur(28px) brightness(.5) saturate(.8); transform: scale(1.08); pointer-events: none; }
 
 /* The interface glides in with CSS transitions (run by the browser, so it never gets stuck). */
 [data-reveal] { transition: opacity .9s var(--ease), translate .9s var(--ease); }

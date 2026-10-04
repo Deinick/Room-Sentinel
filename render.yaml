@@ -33,3 +33,6 @@ services:
       # Public URL of the deployed pairing page, e.g. https://stormhacks-api.onrender.com/pair
       - key: PAIRING_URL_BASE
         sync: false
+      # Comma-separated frontend origins allowed by CORS, e.g. https://stormhacks.vercel.app
+      - key: CORS_ALLOW_ORIGINS
+        sync: false

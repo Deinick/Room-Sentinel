@@ -6,15 +6,6 @@ export type Layout = Record<Sensor, Point>;
 export const colors: Record<Sensor, string> = { Centre: '#d97706', Window: '#028fc7', Heater: '#e52b36', Door: '#16a34a', 'Far wall': '#9333ea' };
 export const defaults: Layout = { Centre: { x: .5, y: .5 }, Window: { x: .24, y: .1 }, Heater: { x: .88, y: .28 }, Door: { x: .12, y: .82 }, 'Far wall': { x: .75, y: .87 } };
 export const initial: Record<Sensor, number> = { Centre: 22.1, Window: 18.4, Heater: 32.8, Door: 20.6, 'Far wall': 21.4 };
-export function parsePacket(value: unknown): Packet {
-  if (!value || typeof value !== 'object') throw new Error('Expected a JSON object.');
-  const data = value as Record<string, unknown>;
-  for (const key of keys) if (typeof data[key] !== 'number' || !Number.isFinite(data[key]) || (data[key] as number) < -55 || (data[key] as number) > 125) throw new Error(`Invalid or missing ${key} reading.`);
-  if (typeof data.timestamp !== 'string') throw new Error('Missing timestamp.');
-  const normalized = data.timestamp.replace(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2})(\d{2})$/, '$1T$2$3:$4');
-  if (!Number.isFinite(Date.parse(normalized))) throw new Error('Invalid measurement timestamp.');
-  return { ...Object.fromEntries(keys.map(key => [key, data[key]])), timestamp: new Date(normalized).toISOString() } as Packet;
-}
 export function interpolate(x: number, y: number, layout: Layout, packet: Packet, width: number, length: number) {
   let sum = 0, weights = 0;
   for (const key of keys) {
@@ -31,4 +22,13 @@ export function temperatureColor(t: number): [number, number, number] {
   const a = stops[Math.max(0, index)], b = stops[Math.max(0, index) + 1];
   const ratio = (value - a[0]) / (b[0] - a[0]);
   return [1, 2, 3].map(i => Math.round(a[i] + (b[i] - a[i]) * ratio)) as [number, number, number];
+}
+/** The dashboard shows one room: the first real device, else the first demo device. A sensor without a value keeps its previous one. */
+export function packetFromLive(latest: Record<string, { time: string; mode: string; age_seconds: number; sensors: Record<string, { temp: number | null }> }>, previous: Packet): { packet: Packet; time: string } | null {
+  const readings = Object.values(latest);
+  const reading = readings.find(r => r.mode === 'device') ?? readings[0];
+  if (!reading) return null;
+  // Arrival time, not reading.time: the demo device's clock can run faster than real time.
+  const timestamp = new Date(Date.now() - reading.age_seconds * 1000).toISOString();
+  return { time: reading.time, packet: { ...Object.fromEntries(keys.map(k => [k, reading.sensors[k]?.temp ?? previous[k]])), timestamp } as Packet };
 }

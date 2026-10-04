@@ -2,8 +2,10 @@
 
 The pipeline updates it; the API (api.py) reads it. Works only when the reader runs in the
 same process as the API (python -m src.sentinel.run --api). History lives in the database.
+Dashboards follow changes through watch() (the /live stream in api.py).
 """
 
+import asyncio
 import threading
 import time
 from dataclasses import replace
@@ -21,6 +23,27 @@ class LiveView:
         self._open: dict[str,IssueEvent]={}  # issue key -> newest event
         self._demo: set[str]=set()
         self._lock=threading.Lock()
+        # Open /live streams: each one's event loop and the event to set when something changes.
+        self._watchers: set[tuple[asyncio.AbstractEventLoop,asyncio.Event]]=set()
+
+    def watch(self) -> asyncio.Event:
+        """An event set on every change to readings or issues. Call from the event loop; end with unwatch()."""
+        watcher=(asyncio.get_running_loop(),asyncio.Event())
+        with self._lock:
+            self._watchers.add(watcher)
+        return watcher[1]
+
+    def unwatch(self, changed: asyncio.Event) -> None:
+        with self._lock:
+            self._watchers={w for w in self._watchers if w[1] is not changed}
+
+    def _notify(self) -> None:
+        """Wake every watcher. Callers hold the lock; the pipeline runs in worker threads, hence threadsafe."""
+        for loop,changed in self._watchers:
+            try:
+                loop.call_soon_threadsafe(changed.set)
+            except RuntimeError:
+                pass  # its loop has closed; unwatch() removes it
 
     def mark_demo(self, device_id: str) -> None:
         with self._lock:
@@ -31,10 +54,12 @@ class LiveView:
         with self._lock:
             self._latest.pop(device_id,None)
             self._open={k:e for k,e in self._open.items() if e.finding.device_id!=device_id}
+            self._notify()
 
     def on_reading(self, reading: Reading) -> None:
         with self._lock:
             self._latest[reading.device_id]=(reading,time.monotonic())
+            self._notify()
 
     def refresh(self, finding: Finding, recommendations: list[Recommendation]) -> None:
         """Keep an open issue's text, numbers and advice current between notifications."""
@@ -42,6 +67,7 @@ class LiveView:
             event=self._open.get(finding.key)
             if event is not None:
                 self._open[finding.key]=replace(event,finding=finding,recommendations=recommendations)
+                self._notify()
 
     def on_event(self, event: IssueEvent) -> None:
         with self._lock:
@@ -49,6 +75,7 @@ class LiveView:
                 self._open.pop(event.finding.key,None)
             else:
                 self._open[event.finding.key]=event
+            self._notify()
 
     def latest(self) -> dict:
         now=time.monotonic()

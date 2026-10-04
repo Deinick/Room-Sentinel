@@ -40,3 +40,25 @@ export const auth = {
   changePassword: (token: string, password: string) => request<User>('/users/me', 'PUT', { password1: password, password2: password }, token),
   deleteAccount: (token: string) => request<void>('/users/me', 'DELETE', undefined, token),
 };
+
+export type LiveReading = { time: string; mode: 'demo' | 'device'; age_seconds: number; live: boolean; sensors: Record<string, { temp: number | null; status: string }> };
+export type LiveFrame = { latest: Record<string, LiveReading>; issues: unknown[] };
+
+/** Read GET /live (Server-Sent Events) until the stream ends or signal aborts. fetch rather than EventSource, which cannot send the bearer token. */
+export async function streamLive(token: string, signal: AbortSignal, onFrame: (frame: LiveFrame) => void): Promise<void> {
+  const response = await fetch(`${API_BASE}/live`, { headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' }, signal, cache: 'no-store' });
+  if (!response.ok || !response.body) throw new ApiError(response.status === 401 ? 'Your session has expired. Sign in again.' : `Server returned ${response.status}.`, response.status);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let end;
+    while ((end = buffer.indexOf('\n\n')) >= 0) {
+      const data = buffer.slice(0, end).split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+      buffer = buffer.slice(end + 2);
+      if (data) onFrame(JSON.parse(data) as LiveFrame);
+    }
+  }
+}

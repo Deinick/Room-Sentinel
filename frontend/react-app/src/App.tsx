@@ -1,8 +1,9 @@
-import { auth, ApiError } from './auth';
+import { auth, ApiError, streamLive } from './auth';
 import { useEffect, useRef, useState } from 'react';
-import { colors, defaults, initial, interpolate, keys, parsePacket, temperatureColor, type Layout, type Packet, type Sensor } from './model';
+import { colors, defaults, initial, interpolate, keys, packetFromLive, temperatureColor, type Layout, type Packet, type Sensor } from './model';
 
 const UPDATE_INTERVAL_MS = 1000;
+const RECONNECT_MS = 3000;
 const STALE_AFTER_SECONDS = 5;
 const HISTORY_LIMIT = 2000;
 const validPassword = (password: string) => password.length >= 8 && password.length <= 32 && /[A-Za-z]/.test(password) && /[0-9]/.test(password);
@@ -160,7 +161,7 @@ export default function App() {
   }, [page, jumpToSensors]);
   const [editing, setEditing] = useState(false), [selected, setSelected] = useState<Sensor>('Centre');
   const [gradient, setGradient] = useState(true), [paused, setPaused] = useState(false), [minutes, setMinutes] = useState(30);
-  const [source, setSource] = useState<'demo' | 'rest'>('demo'), [url, setUrl] = useState('http://localhost:8000/api/v1/readings/latest');
+  const [source, setSource] = useState<'demo' | 'live'>('demo');
   const [error, setError] = useState(''), [connected, setConnected] = useState(false), [clock, setClock] = useState(Date.now());
   const mapRef = useRef<HTMLDivElement>(null), dragging = useRef<Sensor | null>(null);
   const demoBase = useRef<Record<Sensor, number>>({ ...initial });
@@ -168,21 +169,38 @@ export default function App() {
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
     if (paused || !isAuthenticated) return;
-    let disposed = false; const controller = new AbortController(); let busy = false;
+    let disposed = false; const controller = new AbortController();
     function accept(p: Packet) { if (disposed) return; setPacket(p); setHistory(h => { const stamp = Date.parse(p.timestamp); const without = h.filter(item => Date.parse(item.timestamp) !== stamp); return [...without, p].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).slice(-HISTORY_LIMIT); }); }
-    async function tick() {
-      if (source === 'demo') {
-        const t = Date.now() / 10000;
-        accept({ ...Object.fromEntries(keys.map((k, i) => [k, Math.round((demoBase.current[k] + Math.sin(t + i) * .12) * 10) / 10])), timestamp: new Date().toISOString() } as Packet); return;
-      }
-      if (busy) return; busy = true;
-      try { const response = await fetch(url, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(8000)]), cache: 'no-store' }); if (!response.ok) throw new Error(`Server returned ${response.status}.`); const p = parsePacket(await response.json()); accept(p); if (!disposed) { setError(''); setConnected(true); } }
-      catch (e) { if (!disposed) { setConnected(false); setError(e instanceof Error ? e.message : 'Could not reach the API.'); } }
-      finally { busy = false; }
+    if (source === 'demo') {
+      const tick = () => { const t = Date.now() / 10000; accept({ ...Object.fromEntries(keys.map((k, i) => [k, Math.round((demoBase.current[k] + Math.sin(t + i) * .12) * 10) / 10])), timestamp: new Date().toISOString() } as Packet); };
+      tick(); const timer = setInterval(tick, UPDATE_INTERVAL_MS);
+      return () => { disposed = true; clearInterval(timer); };
     }
-    void tick(); const timer = setInterval(() => void tick(), UPDATE_INTERVAL_MS);
-    return () => { disposed = true; controller.abort(); clearInterval(timer); };
-  }, [source, paused, url, isAuthenticated]);
+    // Frames repeat the same reading while nothing changes; only a new reading time is a new point.
+    let lastTime = '', current = packet;
+    async function follow() {
+      while (!disposed) {
+        try {
+          await streamLive(accessToken, controller.signal, frame => {
+            if (disposed) return;
+            setConnected(true); setError('');
+            const next = packetFromLive(frame.latest, current);
+            if (!next) { setError('No device is sending readings yet.'); return; }
+            if (next.time === lastTime) return;
+            lastTime = next.time; current = next.packet; accept(next.packet);
+          });
+          if (!disposed) throw new Error('The live stream closed.');
+        } catch (e) {
+          if (disposed) return;
+          setConnected(false); setError(e instanceof Error ? e.message : 'Could not reach the API.');
+          if (e instanceof ApiError && e.status === 401) return;
+          await new Promise(resolve => setTimeout(resolve, RECONNECT_MS));
+        }
+      }
+    }
+    void follow();
+    return () => { disposed = true; controller.abort(); };
+  }, [source, paused, isAuthenticated, accessToken]);
   const age = Math.max(0, (clock - Date.parse(packet.timestamp)) / 1000);
   const stale = age > STALE_AFTER_SECONDS;
   const ambient = (packet.Centre + packet.Door + packet['Far wall']) / 3;
@@ -200,7 +218,7 @@ export default function App() {
   function changeTemperature(key: Sensor, value: number) {
     demoBase.current[key] = value; const p = { ...packet, [key]: value, timestamp: new Date().toISOString() }; setPacket(p); setHistory(h => [...h, p].slice(-HISTORY_LIMIT));
   }
-  function changeSource(value: 'demo' | 'rest') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
+  function changeSource(value: 'demo' | 'live') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
   function navigatePage(nextPage: string) { setPage(nextPage); window.scrollTo(0, 0); }
   function signOut() { setAccountEmail(''); setAccessToken(''); setIsAuthenticated(false); setPage('Overview'); setJumpToSensors(false); window.scrollTo(0, 0); }
   function sessionError(e: unknown) {
@@ -229,11 +247,11 @@ export default function App() {
       <div className="sidebar-bottom"><span className="avatar">{(accountEmail.slice(0, 2) || 'RS').toUpperCase()}</span><div><button className="account-link" onClick={() => navigatePage('Account settings')}>Account</button><small title={accountEmail}>{accountEmail || 'Prototype workspace'}</small></div><button className="logout-button" onClick={signOut} aria-label="Sign out" title="Sign out">Sign out</button></div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><div>{page}</div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'rest' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'REST connected' : 'REST offline'}</span></div></header>
+      <header className="topbar"><div>{page}</div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'live' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'Live' : 'Offline'}</span></div></header>
       <main>
-        <div className="page-heading"><div><div className="eyebrow">updates: 1s interval</div><h1>{page === 'Overview' ? config.name : page}</h1></div>{page !== 'Account settings' && <button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button>}</div>
+        <div className="page-heading"><div><div className="eyebrow">{source === 'demo' ? 'updates: 1s interval' : 'updates: live stream'}</div><h1>{page === 'Overview' ? config.name : page}</h1></div>{page !== 'Account settings' && <button className="outline-button" onClick={() => { navigatePage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button>}</div>
         {(error || stale) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Last received values are shown.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
-        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">REST API</span></div><p className="subtle">Poll one complete package of five sensor readings every second.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'rest')}><option value="demo">Demo simulation</option><option value="rest">REST API</option></select></label><label className="field">Latest readings endpoint<input value={url} onChange={e => setUrl(e.target.value)} type="url"/></label><p className="help">Your backend must allow this website through CORS. Measurements older than 5 seconds are marked stale.</p><h3>Expected response</h3><pre>{JSON.stringify({ Centre: 29.7, Window: 29.9, Heater: 23.8, Door: 23.5, 'Far wall': 30.5, timestamp: '2023-08-19 12:17:55 -0400' }, null, 2)}</pre></section> : <>
+        {page === 'Account settings' ? <AccountSettings email={accountEmail} onChangePassword={changeAccountPassword} onDelete={deleteAccount}/> : page === 'Settings' ? <section className="panel settings-panel"><div className="panel-title"><h2>Data connection</h2><span className="subtle">Live stream</span></div><p className="subtle">Show the demo simulation, or stream readings from the devices on your account.</p><label className="field">Data source<select value={source} onChange={e => changeSource(e.target.value as 'demo' | 'live')}><option value="demo">Demo simulation</option><option value="live">My devices</option></select></label><p className="help">Readings arrive as they are measured. Measurements older than 5 seconds are marked stale.</p></section> : <>
         <div className="metrics-row">
           <div className="metric-card"><span className="metric-title">Room centre <Icon name="temp" size={17}/></span><strong>{packet.Centre.toFixed(1)}<span>°C</span></strong><small className={Math.abs(packet.Centre - config.target) <= 2 ? 'positive' : 'amber'}>{packet.Centre < config.target - 2 ? 'Below comfort range' : packet.Centre > config.target + 2 ? 'Above comfort range' : 'Within comfort range'} <span className="subtle">· Target {config.target}°</span></small></div>
           <div className="metric-card"><span className="metric-title">Temperature spread <Icon name="pulse" size={17}/></span><strong>{(Math.max(...keys.map(k => packet[k])) - Math.min(...keys.map(k => packet[k]))).toFixed(1)}<span>°C</span></strong><small className="subtle">Warmest to coolest sensor</small></div>
@@ -252,10 +270,10 @@ export default function App() {
         </aside></div>}
         {page === 'Insights' && <section className="panel insights-page"><div className="panel-title"><h2>Thermal observations</h2><span className="badge">RULE BASED</span></div><h3>{warning ? 'Possible heat loss near the window' : 'Window temperature is close to the centre'}</h3><p>The centre is {packet.Centre.toFixed(1)}°C and the window is {packet.Window.toFixed(1)}°C. {warning ? 'Check the window seal and whether the window is open.' : 'No large window temperature difference is currently detected.'}</p><h3>Temperature outlook</h3><p>The centre trend is {(slope * 10).toFixed(2)}°C per 10 minutes. If that trend continues, the centre may reach {forecast.toFixed(1)}°C in 20 minutes.</p><p className="help">These observations use simple temperature comparisons and a linear trend. They are approximate and do not establish the cause of a change.</p></section>}
         {page !== 'Insights' && <section className="panel history-panel"><div className="panel-title"><div><h2>Thermal Telemetry History</h2><p>Continuous temperature readings across room zones.</p></div><div className="segmented">{[5, 15, 30].map(n => <button key={n} className={minutes === n ? 'chosen' : ''} onClick={() => setMinutes(n)}>{n} min</button>)}</div></div><div className="chart-legend">{keys.map(k => <span key={k}><i style={{ background: colors[k] }}/>{k === 'Centre' ? 'Room centre' : k}</span>)}</div><History history={history} minutes={minutes}/></section>}
-        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Latest REST package'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
+        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Live device readings'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
         <section className="demo-strip"><div><strong>{selected === 'Centre' ? 'Room centre' : selected} sensor</strong><span>{source === 'demo' ? 'Adjust a demo reading to explore the temperature map.' : `Measured at ${new Date(packet.timestamp).toLocaleTimeString()}`}</span></div>{source === 'demo' && <><input aria-label={`${selected} demo temperature`} type="range" min="5" max="45" step=".1" value={packet[selected]} onChange={e => changeTemperature(selected, Number(e.target.value))}/><strong>{packet[selected].toFixed(1)}°C</strong></>}<button className="outline-button" onClick={() => setPaused(!paused)}><Icon name={paused ? 'play' : 'pause'} size={15}/>{paused ? 'Resume' : 'Pause'}</button></section>
         </>}
-        <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every second' : 'REST data · polling every second'}</span></footer>
+        <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every second' : 'Live data · streamed as measured'}</span></footer>
       </main>
     </div>
   </div>;

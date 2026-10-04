@@ -18,6 +18,7 @@ import time
 from datetime import datetime, timezone
 
 from src.sentinel.advice import advise
+from src.sentinel.analysis.base import Analyzer
 from src.sentinel.analysis.device_silence import DeviceSilence
 from src.sentinel.analysis.sensor_health import SensorHealth
 from src.sentinel.ingest import sources
@@ -25,6 +26,7 @@ from src.sentinel.ingest.parser import parse_line
 from src.sentinel.ingest.validate import to_reading
 from src.sentinel.issues import IssueTracker
 from src.sentinel.live import LIVE
+from src.sentinel.notify.base import Channel
 from src.sentinel.notify.console import ConsoleChannel
 from src.sentinel.notify.ntfy import NtfyChannel
 from src.sentinel.pipeline import Pipeline
@@ -35,17 +37,24 @@ log=logging.getLogger("sentinel")
 TICK_SECONDS=5
 
 
-def build_pipeline(use_db=True) -> Pipeline:
-    # Add new analysis features here.
-    analyzers=[
+def build_analyzers() -> list[Analyzer]:
+    # Add new analysis features here. Real devices and the demo device both use this list.
+    return [
         SensorHealth(),
         DeviceSilence(),
     ]
+
+
+def build_channels() -> list[Channel]:
     channels=[ConsoleChannel()]
     if os.environ.get("NTFY_TOPIC"):
         channels.append(NtfyChannel(os.environ["NTFY_TOPIC"]))
+    return channels
+
+
+def build_pipeline(use_db=True) -> Pipeline:
     storage=PostgresStorage() if use_db else MemoryStorage()
-    return Pipeline(analyzers,IssueTracker(advise),storage,channels,live=LIVE)
+    return Pipeline(build_analyzers(),IssueTracker(advise),storage,build_channels(),live=LIVE)
 
 
 def tick_forever(pipeline: Pipeline):

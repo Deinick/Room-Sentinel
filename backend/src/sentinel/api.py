@@ -1,4 +1,4 @@
-"""Live endpoints, included in the team API (src/main.py). Each user sees only their own devices."""
+"""Live endpoints, included in the team API (src/main.py). Each user sees their own devices plus the demo devices."""
 
 from typing import Annotated
 
@@ -8,6 +8,7 @@ from src.auth.dependencies import get_current_user
 from src.auth.models import User
 from src.database import get_repository
 from src.device.services import DeviceService
+from src.sentinel.demo import DEMO_DEVICES
 from src.sentinel.device_readings.routes import router as device_readings_router
 from src.sentinel.live import LIVE
 
@@ -19,7 +20,7 @@ async def _my_device_ids(
     user: Annotated[User, Depends(get_current_user)],
     devices: Annotated[DeviceService, Depends(get_repository(DeviceService))],
 ) -> set[str]:
-    return {d.device_id for d in await devices.list_for_user(user.id)}
+    return {d.device_id for d in await devices.list_for_user(user.id)}|set(DEMO_DEVICES)
 
 
 MyDevicesDep=Annotated[set[str], Depends(_my_device_ids)]

@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Room Sentinel</title>
+<style>
+:root{--bg:#0e1116;--card:#161b22;--card2:#1c232d;--line:#2a3340;--text:#e6edf3;--mut:#8b96a5;--ok:#3fb950;--warn:#e3a008;--bad:#f85149;--info:#58a6ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line)}
+header h1{font-size:18px;margin:0;letter-spacing:.2px}
+header .sub{color:var(--mut);font-size:13px}
+header .clock{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--mut)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;padding:16px 20px;max-width:1280px;margin:0 auto}
+@media(max-width:980px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:16px}
+.card h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);font-weight:600}
+canvas{width:100%;height:auto;display:block;border-radius:8px}
+.pill{display:inline-block;padding:4px 12px;border-radius:999px;font-weight:700;letter-spacing:.5px;font-size:13px;background:#2a3340;color:var(--mut)}
+.pill.NORMAL{background:rgba(63,185,80,.15);color:var(--ok)}
+.pill.WARNING{background:rgba(227,160,8,.18);color:var(--warn)}
+.pill.CRITICAL{background:rgba(248,81,73,.2);color:var(--bad)}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.metric{background:var(--card2);border-radius:8px;padding:8px}
+.metric .l{font-size:11px;color:var(--mut)}
+.metric .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+button{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;cursor:pointer}
+button:hover{border-color:#3d4a5c}
+button.on{background:rgba(88,166,255,.15);border-color:var(--info);color:var(--info)}
+button.danger.on{background:rgba(248,81,73,.15);border-color:var(--bad);color:var(--bad)}
+label{color:var(--mut);font-size:12px;display:block;margin-top:8px}
+input[type=range]{width:100%}
+input[type=text],select{background:var(--card2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit;width:100%}
+.note{color:var(--mut);font-size:12px}
+.banner{margin-top:8px;padding:6px 10px;border-radius:8px;font-size:12px;background:rgba(248,81,73,.12);color:var(--bad)}
+.banner.info{background:rgba(88,166,255,.12);color:var(--info)}
+.explain{font-size:13px;white-space:pre-wrap}
+.phone{width:220px;height:400px;margin:4px auto 8px;border-radius:34px;border:6px solid #2b3340;background:linear-gradient(170deg,#24406b,#0b1220);position:relative;overflow:hidden}
+.phone .pt{text-align:center;margin-top:22px;font-size:40px;font-weight:300;font-variant-numeric:tabular-nums}
+.phone .pd{text-align:center;font-size:11px;color:#b8c4d6;margin-bottom:14px}
+.phone .notifs{padding:0 10px;display:flex;flex-direction:column;gap:7px}
+.notif{background:rgba(255,255,255,.14);border-radius:14px;padding:8px 10px;animation:slide .35s ease-out}
+.notif .nt{font-weight:700;font-size:12px}
+.notif .nb{font-size:11px;color:#dbe4f0;margin-top:2px}
+.notif .nm{font-size:10px;color:#9fb0c7;float:right}
+.notif.bad{border-left:3px solid var(--bad)}.notif.warn{border-left:3px solid var(--warn)}.notif.ok{border-left:3px solid var(--ok)}
+@keyframes slide{from{transform:translateY(-14px);opacity:0}to{transform:none;opacity:1}}
+.log{max-height:170px;overflow:auto;font-size:12px}
+.log div{padding:3px 0;border-bottom:1px solid var(--line)}
+.log .t{color:var(--mut);font-variant-numeric:tabular-nums;margin-right:6px}
+kbd{background:var(--card2);border:1px solid var(--line);border-radius:4px;padding:0 5px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Room Sentinel</h1>
+  <span class="sub">simulated room + DS18B20-style sensors &rarr; heat-loss detection &rarr; phone alert</span>
+  <span class="clock" id="simclock">T+00:00</span>
+</header>
+<main>
+  <section>
+    <div class="card"><h3>Room (click the window or the heater)</h3><canvas id="room"></canvas>
+      <div class="note" style="margin-top:6px">Colours are an illustrative interpolation from three point sensors, not a measured map. Keys: <kbd>W</kbd> window, <kbd>H</kbd> heater, <kbd>Space</kbd> pause.</div>
+    </div>
+    <div class="card"><h3>Sensor history</h3><canvas id="chart"></canvas></div>
+  </section>
+  <aside>
+    <div class="card">
+      <h3>System status</h3>
+      <span class="pill" id="state">STARTING</span>
+      <div class="metrics">
+        <div class="metric"><div class="l">Room</div><div class="v" id="mRoom">&ndash;</div></div>
+        <div class="metric"><div class="l">Window zone</div><div class="v" id="mWin">&ndash;</div></div>
+        <div class="metric"><div class="l">Heater</div><div class="v" id="mHeat">&ndash;</div></div>
+        <div class="metric"><div class="l">Trend /h</div><div class="v" id="mTrend">&ndash;</div></div>
+        <div class="metric"><div class="l">Expected /h</div><div class="v" id="mExp">&ndash;</div></div>
+        <div class="metric"><div class="l">Extra loss /h</div><div class="v" id="mRes">&ndash;</div></div>
+      </div>
+      <div style="margin-top:10px" id="forecast" class="note"></div>
+      <div id="faults"></div>
+      <div class="note" style="margin-top:8px" id="calinfo"></div>
+    </div>
+
+    <div class="card">
+      <h3>Phone</h3>
+      <div class="phone"><div class="pt" id="phoneTime">9:41</div><div class="pd" id="phoneDate"></div><div class="notifs" id="notifs"></div></div>
+      <label><input type="checkbox" id="pushOn"> Also send real push to my phone (ntfy)</label>
+      <label>Topic (acts like a password: keep it private)</label>
+      <input type="text" id="topic">
+      <div class="row"><button id="pushTest">Send test push</button><span class="note" id="pushStatus"></span></div>
+      <div class="note">Install the free ntfy app, subscribe to the topic above. Needs internet access.</div>
+    </div>
+
+    <div class="card">
+      <h3>Controls</h3>
+      <div class="row">
+        <button id="bWindow">Open window</button>
+        <button id="bHeater" class="on">Heater ON</button>
+        <button id="bPause">Pause</button>
+      </div>
+      <div class="row">
+        <button id="bHand">Hand on room probe</button>
+        <button id="bUnplug" class="danger">Unplug window probe</button>
+      </div>
+      <label>Outside temperature: <b id="toVal">5</b> &deg;C (weather API in a real build)</label>
+      <input type="range" id="toSlider" min="-15" max="15" step="1" value="5">
+      <label>Comfort threshold: <b id="thrVal">20</b> &deg;C</label>
+      <input type="range" id="thrSlider" min="16" max="22" step="0.5" value="20">
+      <label>Simulation speed</label>
+      <select id="speed"><option value="30">30x (1 min = 30 s)</option><option value="120" selected>120x (1 hour = 30 s)</option><option value="300">300x</option><option value="600">600x</option></select>
+      <div class="row" style="margin-top:10px"><button id="bCal">Recalibrate model</button><button id="bReset">Reset</button></div>
+    </div>
+
+    <div class="card"><h3>Plain-language explanation</h3><div class="explain" id="explain">Nothing to report.</div>
+      <div class="note" style="margin-top:6px">Built from computed numbers with a template. In the real build, send these same facts (not raw data) to Gemini for wording.</div></div>
+
+    <div class="card"><h3>Event log</h3><div class="log" id="log"></div></div>
+  </aside>
+</main>
+
+<script>
+// ===== CORE: room physics + sensor model + detector (no DOM) =====
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function gauss(rng){let u=0,v=0;while(!u)u=rng();v=rng();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+
+// Room model parameters (SI-ish; all rates are 1/second, temps in C).
+// "Air" node Ta, "window zone" node Tz, heater surface Th.
+const P = {
+  kao: 1/(12*3600),   // air <-> outside (infiltration)
+  kaz: 1/(4*3600),    // air <-> window/wall zone
+  kza: 1/(30*60),     // zone <-> air
+  kzo: 1/(60*60),     // zone <-> outside
+  kwinA: 1/(2.5*3600),// extra air exchange when window open
+  kwinZ: 1/(10*60),   // extra zone cooling when window open
+  heaterSurf: 55,     // heater surface temp when on and room is at setpoint
+  heaterMax: 75,      // thermostatic radiator ramps up (capped) when the room is below setpoint
+  setpoint: 22, kp: 8,
+  // surface temperature the heater aims for, given the room air temperature
+  // (a proportional thermostat valve)
+  tauOn: 8*60, tauOff: 15*60,
+  sampleEvery: 10,    // seconds between sensor samples
+  sens: {             // DS18B20-like behaviour: offset, lag, noise, 12-bit quantization
+    room:{off: 0.20, tau: 25, sd: 0.05},
+    win: {off:-0.15, tau: 25, sd: 0.05},
+    heat:{off: 0.10, tau: 45, sd: 0.05},
+  },
+  Q: 1/16,
+};
+function steadyLoss(Ta,To){const Tz=(P.kza*Ta+P.kzo*To)/(P.kza+P.kzo);return P.kao*(Ta-To)+P.kaz*(Ta-Tz);}
+P.Hc = steadyLoss(22,5)/(P.heaterSurf-22);   // heater coupling so that 22C is steady at 5C outside
+
+function heaterTarget(Ta,heaterOn){return heaterOn?Math.min(P.heaterMax,Math.max(Ta,P.heaterSurf+P.kp*(P.setpoint-Ta))):Ta;}
+function equilibrium(To,heaterOn){
+  let lo=To, hi=P.heaterMax;
+  for(let i=0;i<60;i++){
+    const Ta=(lo+hi)/2;
+    const Th=heaterTarget(Ta,heaterOn);
+    const net=P.Hc*(Th-Ta)-steadyLoss(Ta,To);
+    if(net>0) lo=Ta; else hi=Ta;
+  }
+  const Ta=(lo+hi)/2;
+  return {Ta,Tz:(P.kza*Ta+P.kzo*To)/(P.kza+P.kzo),Th:heaterTarget(Ta,heaterOn)};
+}
+
+class Sim{
+  constructor(seed=1){
+    this.rng=mulberry32(seed);
+    this.To=5; this.windowOpen=false; this.heaterOn=true;
+    this.unplugWin=false; this.handUntil=-1;
+    this.resetState();
+  }
+  resetState(){
+    const e=equilibrium(this.To,this.heaterOn);
+    this.t=0; this.Ta=e.Ta; this.Tz=e.Tz; this.Th=e.Th; this.q=0;
+    this.Sr=this.Ta; this.Sw=this.Tz; this.Sh=this.Th; this.nextSample=0;
+  }
+  step(dt){
+    const open=this.windowOpen?1:0;
+    this.q+= -this.q/1800*dt + 4e-5*Math.sqrt(2*dt/1800)*gauss(this.rng); // small unmeasured gains (people, sun)
+    const dTa=P.kao*(this.To-this.Ta)+P.kaz*(this.Tz-this.Ta)+open*P.kwinA*(this.To-this.Ta)+P.Hc*(this.Th-this.Ta)+this.q;
+    const dTz=P.kza*(this.Ta-this.Tz)+P.kzo*(this.To-this.Tz)+open*P.kwinZ*(this.To-this.Tz);
+    const thTarget=heaterTarget(this.Ta,this.heaterOn);
+    const tauH=this.heaterOn?P.tauOn:P.tauOff;
+    this.Ta+=dTa*dt; this.Tz+=dTz*dt; this.Th+=(thTarget-this.Th)/tauH*dt;
+    // sensor lag (probe thermal mass)
+    const handing=this.t<this.handUntil;
+    const tr=handing?33:this.Ta;
+    this.Sr+=(tr-this.Sr)*(1-Math.exp(-dt/P.sens.room.tau));
+    this.Sw+=(this.Tz-this.Sw)*(1-Math.exp(-dt/P.sens.win.tau));
+    this.Sh+=(this.Th-this.Sh)*(1-Math.exp(-dt/P.sens.heat.tau));
+    this.t+=dt;
+  }
+  q12(v){return Math.round(v/P.Q)*P.Q;}
+  sample(){
+    const n=()=>gauss(this.rng);
+    return {
+      t:this.t,
+      room:this.q12(this.Sr+P.sens.room.off+P.sens.room.sd*n()),
+      win:this.unplugWin?-127:this.q12(this.Sw+P.sens.win.off+P.sens.win.sd*n()),
+      heat:this.q12(this.Sh+P.sens.heat.off+P.sens.heat.sd*n()),
+    };
+  }
+  // advance by seconds; returns samples produced
+  advance(sec,onSample){
+    const out=[]; let rem=sec;
+    while(rem>1e-9){
+      const dt=Math.min(1,rem); this.step(dt); rem-=dt;
+      if(this.t>=this.nextSample){ const s=this.sample(); this.nextSample+=P.sampleEvery; out.push(s); if(onSample) onSample(s); }
+    }
+    return out;
+  }
+}
+
+function lsSlope(ts,ys){
+  const n=ts.length; let mt=0,my=0; for(let i=0;i<n;i++){mt+=ts[i];my+=ys[i];} mt/=n; my/=n;
+  let sxx=0,sxy=0; for(let i=0;i<n;i++){const dx=ts[i]-mt; sxx+=dx*dx; sxy+=dx*(ys[i]-my);}
+  return {slope:sxy/sxx, mt, my};
+}
+
+class Detector{
+  constructor(){ this.W=72; this.warnResid=1.5; this.reset(); }
+  reset(){
+    this.buf=[]; this.cal=null; this.lastGoodR=null; this.rejects=0;
+    this.cnt={room:0,win:0,heat:0}; this.fault={room:false,win:false,heat:false};
+    this.disturbed=false; this.disturbUntil=-1;
+    this.breach=0; this.okc=0; this.alert=false; this.crit=false;
+    this.rows=null; this.gaps=null; this.last=null; this.Tof=null; this.lastT=null;
+  }
+  startCalibration(){ this.rows=[]; this.gaps=[]; }
+  finishCalibration(){
+    const R=this.rows; if(!R||R.length<40) return null;
+    let a11=0,a12=0,a22=0,b1=0,b2=0;
+    for(const [x1,x2,y] of R){a11+=x1*x1;a12+=x1*x2;a22+=x2*x2;b1+=x1*y;b2+=x2*y;}
+    const det=a11*a22-a12*a12; if(Math.abs(det)<1e-18) return null;
+    const g=(b1*a22-b2*a12)/det, Hc=(a11*b2-a12*b1)/det;
+    let sse=0,sst=0,my=0; for(const r of R) my+=r[2]; my/=R.length;
+    for(const [x1,x2,y] of R){const e=y-(g*x1+Hc*x2);sse+=e*e;sst+=(y-my)*(y-my);}
+    const gap=this.gaps.reduce((a,b)=>a+b,0)/this.gaps.length;
+    this.cal={g,Hc,gap,n:R.length,rmseH:Math.sqrt(sse/R.length)*3600,r2:1-sse/sst};
+    this.rows=null; this.gaps=null; this.buf=[]; this.breach=0; this.okc=0;
+    return this.cal;
+  }
+  push(s,To,thr){
+    const ev=[];
+    // Outside temperature acts on the room through the slow wall/window zone, so the model
+    // sees a lagged (30 min) version of the weather input, not an instant step.
+    const dts=this.lastT==null?P.sampleEvery:Math.max(0,s.t-this.lastT); this.lastT=s.t;
+    this.Tof=this.Tof==null?To:this.Tof+(To-this.Tof)*(1-Math.exp(-dts/1800));
+    const okVal=v=>typeof v==='number'&&isFinite(v)&&v>-40&&v<100&&v!==85;
+    const oks={room:okVal(s.room),win:okVal(s.win),heat:okVal(s.heat)};
+    for(const k of ['room','win','heat']){
+      if(!oks[k]){ this.cnt[k]++; if(this.cnt[k]===3&&!this.fault[k]){this.fault[k]=true;ev.push({type:'SENSOR_FAULT',sensor:k,t:s.t});} }
+      else { this.cnt[k]=0; if(this.fault[k]){this.fault[k]=false;ev.push({type:'FAULT_CLEARED',sensor:k,t:s.t});} }
+    }
+    let rejected=false;
+    if(oks.room){
+      if(this.lastGoodR!=null&&Math.abs(s.room-this.lastGoodR)>2.5&&this.rejects<30){
+        this.rejects++; rejected=true;
+        if(!this.disturbed){this.disturbed=true;ev.push({type:'PROBE_DISTURBED',t:s.t});}
+        this.disturbUntil=s.t+180;
+      } else { this.rejects=0; this.lastGoodR=s.room; }
+    }
+    if(this.disturbed&&!rejected&&s.t>this.disturbUntil){this.disturbed=false;ev.push({type:'DISTURBANCE_CLEARED',t:s.t});}
+    const st={t:s.t,room:s.room,win:s.win,heat:s.heat,To,thr,state:'NO DATA',slopeH:null,expH:null,residH:null,forecast:null,gapNow:null,faults:Object.keys(this.fault).filter(k=>this.fault[k]),disturbed:this.disturbed,calibrated:!!this.cal};
+    if(oks.room&&!rejected){
+      this.buf.push({t:s.t,r:s.room,h:oks.heat?s.heat:null,w:oks.win?s.win:null});
+      if(this.buf.length>this.W) this.buf.shift();
+    }
+    if(this.buf.length>=this.W&&oks.heat){
+      const B=this.buf, ts=B.map(b=>b.t), rs=B.map(b=>b.r);
+      const {slope,mt,my}=lsSlope(ts,rs);
+      const Tf=my+slope*(B[B.length-1].t-mt);
+      const hs=B.filter(b=>b.h!=null); const Thm=hs.reduce((a,b)=>a+b.h,0)/hs.length;
+      st.Tf=Tf; st.slopeH=slope*3600;
+      const ws=B.filter(b=>b.w!=null); if(ws.length){ st.gapNow=my-ws.reduce((a,b)=>a+b.w,0)/ws.length; }
+      if(this.rows){ this.rows.push([this.Tof-my,Thm-my,slope]); if(st.gapNow!=null) this.gaps.push(st.gapNow); }
+      if(this.cal){
+        const exp=this.cal.g*(this.Tof-my)+this.cal.Hc*(Thm-my);
+        const resid=slope-exp; st.expH=exp*3600; st.residH=resid*3600;
+        if(st.residH<-this.warnResid){this.breach++;this.okc=0;} else if(st.residH>-0.7){this.okc++;this.breach=0;}
+        if(!this.alert&&this.breach>=18){this.alert=true;ev.push({type:'ALERT',t:s.t});}
+        if(this.alert&&this.okc>=36){this.alert=false;ev.push({type:'RECOVERED',t:s.t});}
+        // forecast: extra loss estimated from residual
+        const dT=this.Tof-my; let gEff=this.cal.g;
+        if(Math.abs(dT)>1&&resid<0) gEff=this.cal.g+resid/dT;
+        const Tinf=(gEff*this.Tof+this.cal.Hc*Thm)/(gEff+this.cal.Hc), tau=1/(gEff+this.cal.Hc);
+        let mins=null;
+        if(Tf>thr&&Tinf<thr-0.05) mins=-tau*Math.log((thr-Tinf)/(Tf-Tinf))/60;
+        st.forecast={mins,Tinf,gEff};
+        if(!this.crit&&Tf<thr){this.crit=true;ev.push({type:'CRITICAL',t:s.t});}
+        if(this.crit&&Tf>thr+0.3){this.crit=false;ev.push({type:'CRIT_CLEARED',t:s.t});}
+        st.state=this.crit?'CRITICAL':this.alert?'WARNING':'NORMAL';
+      } else st.state='UNCALIBRATED';
+    } else if(this.cal||this.rows) st.state=this.rows?'CALIBRATING':'WARMING UP';
+    else st.state='UNCALIBRATED';
+    st.alert=this.alert; st.crit=this.crit;
+    this.last=st;
+    return {events:ev,status:st};
+  }
+}
+
+// Calibration run on a twin of the room (heater off/on cycles, window closed)
+function runCalibration(seed=777){
+  const sim=new Sim(seed), det=new Detector();
+  det.startCalibration();
+  const plan=[[1200,true],[7200,false],[7200,true],[3600,false],[3600,true]];
+  for(const [dur,on] of plan){
+    sim.heaterOn=on;
+    sim.advance(dur,s=>det.push(s,sim.To,20));
+  }
+  return det.finishCalibration();
+}
+
+
+// ===== UI =====
+const $=id=>document.getElementById(id);
+let sim,det,cal,hist,speed=120,paused=false,thr=20,lastStatus=null,lastSample=null,heaterState=true;
+const pushCfg={topic:'room-sentinel-'+Math.random().toString(36).slice(2,8)};
+const W=720,H_ROOM=440,H_CHART=220;
+const RX=52,RY=62,RW=616,RH=326;           // room interior
+const WIN={x1:300,x2:460,y:RY};              // window on top wall
+const HEATER={x:RX,y1:160,y2:300};           // radiator on left wall
+const POS={room:[360,260],win:[380,100],heat:[110,230]};
+
+function setupCanvas(c,w,h){const d=window.devicePixelRatio||1;c.width=w*d;c.height=h*d;const x=c.getContext('2d');x.scale(d,d);return x;}
+const rctx=setupCanvas($('room'),W,H_ROOM), cctx=setupCanvas($('chart'),W,H_CHART);
+
+const STOPS=[[8,[59,108,255]],[14,[46,196,255]],[18,[70,211,154]],[21,[242,226,102]],[25,[255,154,60]],[32,[255,75,75]]];
+function colorFor(T){
+  if(T<=STOPS[0][0])return STOPS[0][1];
+  for(let i=1;i<STOPS.length;i++){
+    if(T<=STOPS[i][0]){const [t0,c0]=STOPS[i-1],[t1,c1]=STOPS[i],f=(T-t0)/(t1-t0);return [c0[0]+(c1[0]-c0[0])*f,c0[1]+(c1[1]-c0[1])*f,c0[2]+(c1[2]-c0[2])*f];}
+  }
+  return STOPS[STOPS.length-1][1];
+}
+const GW=72,GH=44,off=document.createElement('canvas');off.width=GW;off.height=GH;
+const octx=off.getContext('2d'),img=octx.createImageData(GW,GH);
+function clockStr(t){const m=Math.floor(t/60);return 'T+'+String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+const fmt=(v,d=1)=>(v==null||!isFinite(v))?'–':v.toFixed(d);
+const sgn=(v,d=1)=>(v==null||!isFinite(v))?'–':(v>0?'+':'')+v.toFixed(d);
+
+// ---------- phone / notifications ----------
+let actx;function beep(f=880){try{actx=actx||new(window.AudioContext||window.webkitAudioContext)();const o=actx.createOscillator(),g=actx.createGain();o.frequency.value=f;g.gain.value=.05;o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+.15);}catch(e){}}
+function showOnPhone(level,title,body){
+  const n=document.createElement('div');n.className='notif '+level;
+  const now=new Date();n.innerHTML='<span class="nm">'+now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})+'</span><div class="nt"></div><div class="nb"></div>';
+  n.querySelector('.nt').textContent=title;n.querySelector('.nb').textContent=body;
+  const box=$('notifs');box.prepend(n);while(box.children.length>3)box.lastChild.remove();
+}
+async function sendPush(title,body,prio,tags){
+  if(!$('pushOn').checked&&!arguments[4])return;
+  try{
+    const r=await fetch('https://ntfy.sh',{method:'POST',body:JSON.stringify({topic:$('topic').value.trim(),title,message:body,priority:prio,tags})});
+    $('pushStatus').textContent=r.ok?'sent '+new Date().toLocaleTimeString():'push failed ('+r.status+')';
+  }catch(e){$('pushStatus').textContent='push failed (offline or blocked)';}
+}
+function notify(level,title,body,prio,tags){
+  showOnPhone(level,title,body);
+  if(level!=='ok')beep(level==='bad'?660:880);
+  sendPush(title,body,prio,tags);
+}
+
+// ---------- explanation text (computed numbers -> words) ----------
+function explainAlert(st){
+  const parts=[];
+  parts.push('Room is '+fmt(st.Tf)+' °C and falling '+fmt(-st.slopeH)+' °C/h; for these conditions about '+fmt(Math.max(0,-st.expH))+' °C/h is normal.');
+  if(st.gapNow!=null&&cal){
+    const extra=st.gapNow-cal.gap;
+    parts.push('Window zone is '+fmt(st.win)+' °C, '+fmt(st.gapNow)+' °C below the room (usually '+fmt(cal.gap)+').');
+    parts.push(extra>2?'The window area is much colder than usual, so an open window or door is likely. Check it.':'No clear window signature, so check doors, drafts and the heating.');
+  } else parts.push('Window probe has no data, so the cause is uncertain. Check windows, doors and heating.');
+  if(st.forecast&&st.forecast.mins!=null)parts.push('Predicted to drop below '+thr+' °C in about '+Math.max(1,Math.round(st.forecast.mins))+' min.');
+  return parts.join(' ');
+}
+function handleEvent(e,st){
+  const clk=clockStr(e.t);
+  const log=(txt,cls)=>{const d=document.createElement('div');d.innerHTML='<span class="t">'+clk+'</span>';d.append(txt);$('log').prepend(d);};
+  if(e.type==='ALERT'){const b=explainAlert(st);$('explain').textContent=b;log('WARNING: abnormal heat loss');notify('warn','Room losing heat fast',b,4,['warning']);}
+  else if(e.type==='CRITICAL'){const b='Room is '+fmt(st.Tf)+' °C, below your '+thr+' °C threshold.';log('CRITICAL: below threshold');notify('bad','Room below '+thr+' °C',b,5,['rotating_light']);}
+  else if(e.type==='RECOVERED'){const b='Heat loss is back to normal. Room is '+fmt(st.Tf)+' °C.';$('explain').textContent=b;log('Recovered: heat loss normal');notify('ok','Heat loss back to normal',b,3,['white_check_mark']);}
+  else if(e.type==='CRIT_CLEARED'){log('Back above threshold');}
+  else if(e.type==='SENSOR_FAULT'){const nm={room:'room',win:'window',heat:'heater'}[e.sensor];const b='The '+nm+' probe is not responding. Readings from it are ignored until it returns.';log('SENSOR FAULT: '+nm+' probe');notify('warn','Sensor fault: '+nm+' probe',b,3,['electric_plug']);}
+  else if(e.type==='FAULT_CLEARED'){log('Sensor recovered: '+({room:'room',win:'window',heat:'heater'}[e.sensor]));}
+  else if(e.type==='PROBE_DISTURBED'){log('Room probe disturbed (sudden jump ignored, not a heat-loss event)');}
+  else if(e.type==='DISTURBANCE_CLEARED'){log('Room probe reading normal again');}
+}
+
+// ---------- simulation plumbing ----------
+function onSample(s){
+  const r=det.push(s,sim.To,thr);
+  lastStatus=r.status;lastSample=s;
+  hist.push({t:s.t,room:s.room,win:s.win,heat:s.heat,To:sim.To,thr});
+  if(hist.length>1500)hist.shift();
+  r.events.forEach(e=>handleEvent(e,r.status));
+}
+function init(keepCal){
+  sim=new Sim(Date.now()%100000);det=new Detector();hist=[];
+  if(!keepCal||!cal)cal=runCalibration(777);
+  det.cal=cal;
+  sim.To=+$('toSlider').value;sim.heaterOn=heaterState;sim.windowOpen=false;sim.resetState();
+  // warm up silently so the detector is ready at start
+  const quiet=det.push;sim.advance(15*60,s=>{det.push(s,sim.To,thr);hist.push({t:s.t,room:s.room,win:s.win,heat:s.heat,To:sim.To,thr});});
+  lastStatus=det.last;$('log').innerHTML='';$('notifs').innerHTML='';$('explain').textContent='Nothing to report.';
+  $('bWindow').classList.remove('on');$('bWindow').textContent='Open window';$('bUnplug').classList.remove('on');
+}
+
+// ---------- drawing: room ----------
+const particles=[];let lastFrame=performance.now(),tAnim=0;
+function drawRoom(dt){
+  const c=rctx;c.clearRect(0,0,W,H_ROOM);
+  // outside band
+  const oc=colorFor(sim.To);c.fillStyle='rgb('+(oc[0]*.35|0)+','+(oc[1]*.35|0)+','+(oc[2]*.35|0)+')';c.fillRect(0,0,W,RY-12);
+  c.fillStyle='#cfd8e3';c.font='600 12px system-ui';c.textAlign='left';c.fillText('OUTSIDE  '+sim.To.toFixed(0)+' °C',16,26);
+  // heat field
+  const Ta=sim.Ta,Tz=sim.Tz,Th=sim.Th;
+  for(let gy=0;gy<GH;gy++)for(let gx=0;gx<GW;gx++){
+    const x=RX+(gx+.5)/GW*RW,y=RY+(gy+.5)/GH*RH;
+    const dw=Math.hypot(x-(WIN.x1+WIN.x2)/2,y-WIN.y),dh=Math.hypot(x-HEATER.x,y-(HEATER.y1+HEATER.y2)/2);
+    const T=Ta+(Tz-Ta)*Math.exp(-dw*dw/(2*120*120))+(Th-Ta)*.10*Math.exp(-dh*dh/(2*95*95));
+    const col=colorFor(T),k=(gy*GW+gx)*4;img.data[k]=col[0];img.data[k+1]=col[1];img.data[k+2]=col[2];img.data[k+3]=255;
+  }
+  octx.putImageData(img,0,0);c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';c.drawImage(off,RX,RY,RW,RH);
+  // walls
+  c.strokeStyle='#0b0e13';c.lineWidth=12;c.strokeRect(RX-6,RY-6,RW+12,RH+12);
+  // window
+  c.fillStyle=sim.windowOpen?'#0b0e13':'#9fd3ff';c.fillRect(WIN.x1,RY-9,WIN.x2-WIN.x1,10);
+  if(sim.windowOpen){c.strokeStyle='#9fd3ff';c.lineWidth=4;c.beginPath();c.moveTo(WIN.x1,RY-2);c.lineTo(WIN.x1+52,RY+64);c.stroke();}
+  c.fillStyle='#e6edf3';c.font='11px system-ui';c.textAlign='center';c.fillText('WINDOW '+(sim.windowOpen?'(open)':'(closed)'),(WIN.x1+WIN.x2)/2,RY-18);
+  // heater
+  const hc=colorFor(Th);c.fillStyle='rgb('+hc[0]+','+hc[1]+','+hc[2]+')';c.fillRect(HEATER.x-2,HEATER.y1,16,HEATER.y2-HEATER.y1);
+  c.strokeStyle='#0b0e13';c.lineWidth=2;for(let y=HEATER.y1+10;y<HEATER.y2;y+=14){c.beginPath();c.moveTo(HEATER.x-2,y);c.lineTo(HEATER.x+14,y);c.stroke();}
+  c.save();c.translate(HEATER.x+34,(HEATER.y1+HEATER.y2)/2);c.rotate(-Math.PI/2);c.fillStyle='#e6edf3';c.font='11px system-ui';c.textAlign='center';c.fillText('HEATER '+(sim.heaterOn?'ON':'OFF'),0,0);c.restore();
+  // cold-air particles
+  if(sim.windowOpen&&!paused){for(let i=0;i<Math.max(1,speed/60|0);i++)if(Math.random()<.55)particles.push({x:WIN.x1+Math.random()*(WIN.x2-WIN.x1),y:RY+4,vy:30+Math.random()*30,life:1});}
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];if(!paused){p.y+=p.vy*dt;p.life-=dt*.55;}if(p.life<=0){particles.splice(i,1);continue;}
+    c.fillStyle='rgba(190,230,255,'+(p.life*.7)+')';c.beginPath();c.arc(p.x,p.y,2.6,0,6.3);c.fill();}
+  // sensors
+  const s=lastSample||{room:Ta,win:Tz,heat:Th};
+  drawSensor(c,POS.room,'ROOM',s.room);drawSensor(c,POS.win,'WINDOW',s.win);drawSensor(c,POS.heat,'HEATER',s.heat);
+}
+function drawSensor(c,p,name,v){
+  const bad=!(typeof v==='number'&&v>-40&&v<100&&v!==85);
+  c.fillStyle='#fff';c.strokeStyle=bad?'#f85149':'#0b0e13';c.lineWidth=3;c.beginPath();c.arc(p[0],p[1],7,0,6.3);c.fill();c.stroke();
+  const txt=name+'  '+(bad?'NO SIGNAL':v.toFixed(1)+' °C');
+  c.font='600 12px system-ui';const w=c.measureText(txt).width+16;
+  c.fillStyle='rgba(11,14,19,.82)';c.beginPath();c.roundRect?c.roundRect(p[0]-w/2,p[1]+12,w,22,6):c.rect(p[0]-w/2,p[1]+12,w,22);c.fill();
+  c.fillStyle=bad?'#f85149':'#e6edf3';c.textAlign='center';c.fillText(txt,p[0],p[1]+27);
+}
+
+// ---------- drawing: chart ----------
+function drawChart(){
+  const c=cctx;c.clearRect(0,0,W,H_CHART);
+  const L=44,R=10,T=12,B=26,pw=W-L-R,ph=H_CHART-T-B;
+  const span=150*60,tEnd=sim.t,tStart=tEnd-span;
+  const pts=hist.filter(h=>h.t>=tStart);
+  c.fillStyle='#0f141b';c.fillRect(L,T,pw,ph);
+  if(pts.length<2)return;
+  let lo=1e9,hi=-1e9;
+  for(const p of pts){for(const v of [p.room,p.win]){if(v>-40&&v<100&&v!==85){lo=Math.min(lo,v);hi=Math.max(hi,v);}}lo=Math.min(lo,p.To,p.thr);hi=Math.max(hi,p.To,p.thr);}
+  lo=Math.floor(lo-1);hi=Math.ceil(hi+1);if(hi-lo<8)hi=lo+8;
+  const X=t=>L+(t-tStart)/span*pw,Y=v=>T+(1-(v-lo)/(hi-lo))*ph;
+  c.strokeStyle='#222b36';c.lineWidth=1;c.fillStyle='#8b96a5';c.font='11px system-ui';c.textAlign='right';
+  const step=(hi-lo)>20?5:2;for(let v=Math.ceil(lo/step)*step;v<=hi;v+=step){c.beginPath();c.moveTo(L,Y(v));c.lineTo(L+pw,Y(v));c.stroke();c.fillText(v+'°',L-6,Y(v)+4);}
+  c.textAlign='center';for(let m=Math.ceil(tStart/1800)*1800;m<=tEnd;m+=1800){const hh=Math.floor(m/3600),mm=(m/60)%60;c.fillText(String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0'),X(m),H_CHART-8);}
+  // heater-on strip
+  for(let i=1;i<pts.length;i++){const p=pts[i];if(p.heat>-40&&p.room>-40&&p.heat-p.room>8){c.fillStyle='rgba(248,81,73,.55)';c.fillRect(X(pts[i-1].t),T+ph-4,Math.max(1,X(p.t)-X(pts[i-1].t)),4);}}
+  const line=(key,col,w,dash)=>{c.strokeStyle=col;c.lineWidth=w;c.setLineDash(dash||[]);c.beginPath();let pen=false;for(const p of pts){const v=p[key];if(!(v>-40&&v<100&&v!==85)){pen=false;continue;}if(!pen){c.moveTo(X(p.t),Y(v));pen=true;}else c.lineTo(X(p.t),Y(v));}c.stroke();c.setLineDash([]);};
+  // outside + threshold
+  c.strokeStyle='#6e7b8c';c.setLineDash([4,4]);c.beginPath();pts.forEach((p,i)=>{i?c.lineTo(X(p.t),Y(p.To)):c.moveTo(X(p.t),Y(p.To));});c.stroke();c.setLineDash([]);
+  c.strokeStyle='#e3a008';c.setLineDash([2,4]);c.beginPath();pts.forEach((p,i)=>{i?c.lineTo(X(p.t),Y(p.thr)):c.moveTo(X(p.t),Y(p.thr));});c.stroke();c.setLineDash([]);
+  line('win','#58a6ff',1.6);line('room','#e6edf3',2.2);
+  // legend
+  c.textAlign='left';c.font='11px system-ui';[['Room','#e6edf3'],['Window zone','#58a6ff'],['Outside','#6e7b8c'],['Threshold','#e3a008'],['Heater on','#f85149']].forEach((l,i)=>{c.fillStyle=l[1];c.fillRect(L+8+i*92,T+8,10,3);c.fillStyle='#8b96a5';c.fillText(l[0],L+22+i*92,T+13);});
+}
+
+// ---------- panel ----------
+function updatePanel(){
+  $('simclock').textContent=clockStr(sim.t)+' (simulated)'+(paused?'  · paused':'');
+  const st=lastStatus;if(!st)return;
+  const pill=$('state');pill.textContent=st.state;pill.className='pill '+st.state;
+  const ok=v=>typeof v==='number'&&v>-40&&v<100&&v!==85;
+  $('mRoom').textContent=ok(st.room)?fmt(st.room)+'°':'no signal';
+  $('mWin').textContent=ok(st.win)?fmt(st.win)+'°':'no signal';
+  $('mHeat').textContent=ok(st.heat)?fmt(st.heat)+'°':'no signal';
+  $('mTrend').textContent=sgn(st.slopeH);$('mExp').textContent=sgn(st.expH);$('mRes').textContent=sgn(st.residH);
+  $('mRes').style.color=(st.residH!=null&&st.residH<-1.5)?'var(--warn)':'';
+  let f='';
+  if(st.forecast&&st.Tf!=null){
+    if(st.Tf<thr)f='Already below '+thr+' °C.';
+    else if(st.forecast.mins!=null)f='Forecast: below '+thr+' °C in about '+Math.max(1,Math.round(st.forecast.mins))+' min (approximate).';
+    else f='Forecast: stays above '+thr+' °C (settles near '+fmt(st.forecast.Tinf)+' °C under current conditions).';
+  }
+  $('forecast').textContent=f;
+  let fb='';
+  if(st.faults.length)fb+='<div class="banner">Sensor fault: '+st.faults.map(k=>({room:'room',win:'window',heat:'heater'}[k])).join(', ')+' probe. Its readings are excluded.</div>';
+  if(st.disturbed)fb+='<div class="banner info">Room probe disturbed (sudden jump). Ignored, not treated as heat loss.</div>';
+  $('faults').innerHTML=fb;
+  if(cal)$('calinfo').textContent='Model calibrated: room time constant about '+fmt(1/cal.g/3600)+' h, fit R² '+fmt(cal.r2,2)+' ('+cal.n+' windows). Calibration ran on the simulator, not on real hardware.';
+}
+
+// ---------- wiring ----------
+function setWindow(on){sim.windowOpen=on;$('bWindow').classList.toggle('on',on);$('bWindow').textContent=on?'Close window':'Open window';}
+function setHeater(on){heaterState=on;sim.heaterOn=on;$('bHeater').classList.toggle('on',on);$('bHeater').textContent=on?'Heater ON':'Heater OFF';}
+$('bWindow').onclick=()=>setWindow(!sim.windowOpen);
+$('bHeater').onclick=()=>setHeater(!sim.heaterOn);
+$('bPause').onclick=()=>{paused=!paused;$('bPause').textContent=paused?'Resume':'Pause';};
+$('bHand').onclick=()=>{sim.handUntil=sim.t+60;};
+$('bUnplug').onclick=()=>{sim.unplugWin=!sim.unplugWin;$('bUnplug').classList.toggle('on',sim.unplugWin);$('bUnplug').textContent=sim.unplugWin?'Plug window probe back in':'Unplug window probe';};
+$('toSlider').oninput=e=>{sim.To=+e.target.value;$('toVal').textContent=e.target.value;};
+$('thrSlider').oninput=e=>{thr=+e.target.value;$('thrVal').textContent=thr;};
+$('speed').onchange=e=>{speed=+e.target.value;};
+$('bCal').onclick=()=>{cal=runCalibration(Math.floor(Math.random()*9000)+1);det.cal=cal;};
+$('bReset').onclick=()=>{init(true);};
+$('pushTest').onclick=()=>{showOnPhone('ok','Test notification','Room Sentinel is connected.');sendPush('Room Sentinel test','Test notification from your simulator.',3,['white_check_mark'],true);};
+$('room').addEventListener('click',e=>{
+  const r=$('room').getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H_ROOM/r.height;
+  if(x>=WIN.x1-10&&x<=WIN.x2+10&&y>=30&&y<=100)setWindow(!sim.windowOpen);
+  else if(x>=HEATER.x-20&&x<=HEATER.x+60&&y>=HEATER.y1-10&&y<=HEATER.y2+10)setHeater(!sim.heaterOn);
+});
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.key==='w'||e.key==='W')setWindow(!sim.windowOpen);
+  else if(e.key==='h'||e.key==='H')setHeater(!sim.heaterOn);
+  else if(e.key===' '){e.preventDefault();$('bPause').click();}
+});
+$('topic').value=pushCfg.topic;
+function tickPhoneClock(){const n=new Date();$('phoneTime').textContent=n.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}).replace(/ ?[AP]M/i,'');$('phoneDate').textContent=n.toLocaleDateString([], {weekday:'long',month:'long',day:'numeric'});}
+tickPhoneClock();setInterval(tickPhoneClock,15000);
+
+function frame(now){
+  const dt=Math.min(.1,(now-lastFrame)/1000);lastFrame=now;
+  if(!paused)sim.advance(Math.min(60,dt*speed),onSample);
+  drawRoom(dt);drawChart();updatePanel();
+  requestAnimationFrame(frame);
+}
+init(false);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

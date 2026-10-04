@@ -26,6 +26,9 @@ class Device(Base):
     secret_hash: Mapped[str] = mapped_column(String, nullable=False)
     # SHA-256 of the current device token. Replaced on every pairing, cleared on unpair.
     token_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True, unique=True)
+    # When the current owner paired it. The owner only sees readings from then on, so a
+    # transferred device does not reveal the previous owner's history. None while unowned.
+    paired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

@@ -112,8 +112,10 @@ class DatabaseHistory:
     from it instead of the raw table; until then this aggregates raw rows.
     """
 
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, since: datetime | None=None):
         self.session=session
+        # Nothing older than this is returned: the current owner's pairing time.
+        self.since=since
 
     async def readings(self, device_id: str, minutes: float) -> dict:
         seconds=bucket_seconds(minutes)
@@ -121,9 +123,10 @@ class DatabaseHistory:
             SELECT time_bucket(make_interval(secs => :seconds), time) AS bucket, sensor, avg(temp_c) AS value
             FROM readings
             WHERE device_id = :device AND time > now() - make_interval(mins => :minutes) AND temp_c IS NOT NULL
+              AND time >= COALESCE(CAST(:since AS timestamptz), '-infinity')
             GROUP BY bucket, sensor
             ORDER BY bucket
-        """),{"seconds":seconds,"device":device_id,"minutes":int(minutes)})
+        """),{"seconds":seconds,"device":device_id,"minutes":int(minutes),"since":self.since})
         buckets: dict[datetime,dict[str,float]]={}
         for bucket,sensor,value in rows:
             buckets.setdefault(bucket,{})[sensor]=round(value,3)
@@ -136,9 +139,10 @@ class DatabaseHistory:
             SELECT time_bucket(make_interval(secs => :seconds), time) AS bucket, name, avg(value) AS value
             FROM metrics
             WHERE device_id = :device AND time > now() - make_interval(mins => :minutes)
+              AND time >= COALESCE(CAST(:since AS timestamptz), '-infinity')
             GROUP BY bucket, name
             ORDER BY bucket
-        """),{"seconds":seconds,"device":device_id,"minutes":int(minutes)})
+        """),{"seconds":seconds,"device":device_id,"minutes":int(minutes),"since":self.since})
         series: dict[str,list[dict]]={}
         for bucket,name,value in rows:
             if names is None or name in names:

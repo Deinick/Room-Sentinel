@@ -105,6 +105,7 @@ class DeviceService(BaseService):
             raise PairingNotFound()
         device.user_id = None
         device.token_hash = None
+        device.paired_at = None
         await self.session.flush()
         logger.info("Device %r unpaired from user id=%d.", device_id, user_id)
 
@@ -169,6 +170,7 @@ class DeviceService(BaseService):
             # Physical possession plus a factory reset is what transfers a device,
             # so the previous owner's token stops working here.
             device.token_hash = None
+            device.paired_at = datetime.now(timezone.utc)
         device.user_id = user_id
         pairing.confirmed_by = user_id
         await self.session.flush()

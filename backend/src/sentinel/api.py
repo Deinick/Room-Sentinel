@@ -1,5 +1,6 @@
 """Live endpoints, included in the team API (src/main.py). Each user sees their own devices plus the demo devices."""
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -23,11 +24,12 @@ router.include_router(demo_router)
 async def _my_device_ids(
     user: Annotated[User, Depends(get_current_user)],
     devices: Annotated[DeviceService, Depends(get_repository(DeviceService))],
-) -> set[str]:
-    return {d.device_id for d in await devices.list_for_user(user.id)}|set(DEMO_DEVICES)
+) -> dict[str, datetime | None]:
+    """device_id -> when the user paired it (None for demo devices, which have no previous owner)."""
+    return {**dict.fromkeys(DEMO_DEVICES),**{d.device_id:d.paired_at for d in await devices.list_for_user(user.id)}}
 
 
-MyDevicesDep=Annotated[set[str], Depends(_my_device_ids)]
+MyDevicesDep=Annotated[dict[str, datetime | None], Depends(_my_device_ids)]
 
 
 @router.get("/latest",summary="Newest reading per device")
@@ -43,11 +45,11 @@ def get_issues(my_devices: MyDevicesDep) -> list[dict]:
     return [i for i in LIVE.issues() if i["device_id"] in my_devices]
 
 
-def _history_for(device: str, my_devices: set[str], request: Request, session: AsyncSession):
+def _history_for(device: str, my_devices: dict[str, datetime | None], request: Request, session: AsyncSession):
     if device not in my_devices:
         raise HTTPException(404,f"No device {device!r} on your account.")
     demo=getattr(request.app.state,"demos",{}).get(device)
-    return demo.history if demo else DatabaseHistory(session)
+    return demo.history if demo else DatabaseHistory(session,since=my_devices[device])
 
 
 @router.get("/history",summary="Temperatures over time for charts (bucket size chosen from the range)")

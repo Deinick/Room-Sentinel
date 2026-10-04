@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from src.auth.dependencies import get_current_staff_user, get_current_user
 from src.auth.models import User
 from src.database import get_repository
+from src.sentinel.profiles import PROFILES
 from .live import connections
 from .schemas import (
     DeviceCreate,
@@ -27,6 +28,7 @@ from .schemas import (
 from .services import (
     DeviceAuthError,
     DeviceService,
+    InvalidLimits,
     PairingExpired,
     PairingNotFound,
     PairingPending,
@@ -117,7 +119,7 @@ async def list_devices(user: UserDep, service: ServiceDep) -> list[ReadDevice]:
     return [ReadDevice.model_validate(d) for d in await service.list_for_user(user.id)]
 
 
-@router.patch("/devices/{device_id}", response_model=ReadDevice, summary="User: rename a device or set its target temperature")
+@router.patch("/devices/{device_id}", response_model=ReadDevice, summary="User: rename a device or set its target and limit temperatures")
 async def update_device(
     device_id: str, payload: DeviceUpdate, user: UserDep, service: ServiceDep, background: BackgroundTasks
 ) -> ReadDevice:
@@ -126,6 +128,10 @@ async def update_device(
         device = await service.update_settings(device_id=device_id, user_id=user.id, changes=changes)
     except PairingNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+    except InvalidLimits:
+        raise HTTPException(status_code=422, detail="min_temperature must be below max_temperature.")
+    if changes.keys() & {"min_temperature", "max_temperature"}:
+        background.add_task(PROFILES.set_limits, device.device_id, device.min_temperature, device.max_temperature)
     if "target_temperature" in changes:
         # Runs after the commit, so the device never sees a value that was rolled back.
         background.add_task(connections.push_settings, device.device_id, device.target_temperature)

@@ -30,6 +30,8 @@ class DeviceUpdate(_OrmBase):
     name: Optional[str] = Field(default=None, min_length=1, max_length=100)
     # The detector measures -55 C to 120 C.
     target_temperature: Optional[float] = Field(default=None, ge=-55, le=120, allow_inf_nan=False)
+    min_temperature: Optional[float] = Field(default=None, ge=-55, le=120, allow_inf_nan=False)
+    max_temperature: Optional[float] = Field(default=None, ge=-55, le=120, allow_inf_nan=False)
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +43,8 @@ class ReadDevice(_OrmBase):
     user_id: Optional[int] = None
     name: Optional[str] = None
     target_temperature: Optional[float] = None
+    min_temperature: Optional[float] = None
+    max_temperature: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

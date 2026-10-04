@@ -1,4 +1,9 @@
-from parser import SENSOR_NAMES
+"""Mark impossible or special sensor values as bad, and build the Reading."""
+
+from datetime import datetime
+
+from src.sentinel.config import SENSOR_NAMES
+from src.sentinel.models import Reading, SensorValue
 
 DISCONNECTED=-127.0
 POWER_ON=85.0
@@ -26,8 +31,9 @@ def check_all(temps: dict)->dict:
     return result
 
 
-if __name__=="__main__":
-    for t in [21.5, None, -127.0, 85.0, 400.0, -50.0, 0.0]:
-        print(t,"->",check(t))
-
-    print(check_all({"Centre": 21.5, "Window": -127.0, "Door": 85.0}))
+def to_reading(frame: dict, time: datetime) -> Reading:
+    """Parser output + arrival time -> Reading with every sensor checked."""
+    sensors={}
+    for name,(temp,status) in check_all(frame["temps"]).items():
+        sensors[name]=SensorValue(temp,status)
+    return Reading(frame["id"],time,sensors)

@@ -76,3 +76,8 @@ backlight timeout with touch wake-up, Wi-Fi retry/change/forget controls, and a
 Device Information page with serial number, firmware versions, IP address, and
 Wi-Fi signal strength. Telemetry remains in Celsius regardless of the selected
 display unit.
+
+Temperature values are blue below 18 °C, orange from 18–26 °C, and red above
+26 °C; disconnected sensors are gray. The existing blue/orange side bars still
+represent the one-minute temperature trend. Device Information also shows
+controller uptime and a human-readable Wi-Fi quality rating.

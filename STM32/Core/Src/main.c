@@ -65,6 +65,8 @@ typedef enum {
 #define TEMPERATURE_INVALID INT16_MIN
 #define DISPLAY_SLEEP_TIMEOUT_MS 30000U
 #define STM32_FIRMWARE_VERSION "1.2.0"
+#define COMFORT_MIN_C 18.0f
+#define COMFORT_MAX_C 26.0f
 
 /* USER CODE END PD */
 
@@ -128,6 +130,7 @@ static uint32_t last_touch_tick;
 static char esp_firmware_version[24] = "WAITING";
 static char esp_ip_address[16] = "--";
 static int esp_wifi_rssi;
+static volatile uint32_t runtime_info_sequence;
 
 static osThreadId_t uartTaskHandle;
 static const osThreadAttr_t uartTask_attributes = {
@@ -174,6 +177,9 @@ static void UiHandleTouch(void);
 static void UiServiceDelay(uint32_t duration_ms);
 static void UiDrawStatistics(void);
 static void UiManageSleep(void);
+static void DisplayDeviceUptime(void);
+static void DisplayDeviceRuntimeInfo(void);
+static const char *WifiSignalQuality(int rssi);
 static void FormatTemperatureTenths(int32_t celsius_tenths, char *buffer,
                                     size_t buffer_size);
 static void HistoryCapture(void);
@@ -203,6 +209,67 @@ static uint8_t JsonStringField(const char *json, const char *name,
   (void)memcpy(value, start, length);
   value[length] = '\0';
   return 1U;
+}
+
+static uint16_t TemperatureValueColor(uint8_t sensor_index)
+{
+  if (temperature_status[sensor_index] != 0U) return UI_MUTED;
+  float temperature = temperature_sensors[sensor_index].temperature;
+  if (temperature < COMFORT_MIN_C) return UI_COOL;
+  if (temperature > COMFORT_MAX_C) return RED;
+  return UI_PRIMARY;
+}
+
+static const char *WifiSignalQuality(int rssi)
+{
+  if (rssi == 0) return "DISCONNECTED";
+  if (rssi > -50) return "EXCELLENT";
+  if (rssi >= -65) return "GOOD";
+  if (rssi >= -75) return "WEAK";
+  return "POOR";
+}
+
+static void DisplayDeviceUptime(void)
+{
+  uint32_t total_seconds = HAL_GetTick() / 1000U;
+  uint32_t hours = total_seconds / 3600U;
+  uint32_t minutes = (total_seconds / 60U) % 60U;
+  uint32_t seconds = total_seconds % 60U;
+  char line[32];
+  (void)snprintf(line, sizeof(line), "UPTIME: %02lu:%02lu:%02lu",
+                 (unsigned long)hours, (unsigned long)minutes,
+                 (unsigned long)seconds);
+  Displ_FillArea(25, 213, 430, 32, UI_BACKGROUND);
+  Displ_CString(30, 213, 450, 241, line,
+                Font16, 1U, UI_TEXT, UI_BACKGROUND);
+}
+
+static void DisplayDeviceRuntimeInfo(void)
+{
+  char firmware[sizeof(esp_firmware_version)];
+  char ip_address[sizeof(esp_ip_address)];
+  int rssi;
+  char line[64];
+
+  taskENTER_CRITICAL();
+  (void)strncpy(firmware, esp_firmware_version, sizeof(firmware));
+  firmware[sizeof(firmware) - 1U] = '\0';
+  (void)strncpy(ip_address, esp_ip_address, sizeof(ip_address));
+  ip_address[sizeof(ip_address) - 1U] = '\0';
+  rssi = esp_wifi_rssi;
+  taskEXIT_CRITICAL();
+
+  Displ_FillArea(25, 108, 430, 100, UI_BACKGROUND);
+  (void)snprintf(line, sizeof(line), "ESP32 FIRMWARE: %s", firmware);
+  Displ_CString(30, 112, 450, 140, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+  (void)snprintf(line, sizeof(line), "IP ADDRESS: %s", ip_address);
+  Displ_CString(30, 144, 450, 172, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+  if (rssi != 0)
+    (void)snprintf(line, sizeof(line), "WI-FI SIGNAL: %s (%d dBm)",
+                   WifiSignalQuality(rssi), rssi);
+  else
+    (void)strncpy(line, "WI-FI SIGNAL: DISCONNECTED", sizeof(line));
+  Displ_CString(30, 176, 450, 204, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
 }
 
 static uint8_t JsonNumberField(const char *json, const char *name,
@@ -328,7 +395,7 @@ static void DisplayTemperature(uint8_t sensor_index)
   Displ_CString((uint16_t)(x + 20U), (uint16_t)(y + 28U),
                 (uint16_t)(x + 212U), (uint16_t)(y + 56U), line,
                 Font16, 1U,
-                (temperature_status[sensor_index] == 0U) ? UI_TEXT : RED,
+                TemperatureValueColor(sensor_index),
                 UI_PANEL);
   Displ_FillArea((uint16_t)(x + 8U), (uint16_t)(y + 10U), 5U, 46U,
                  (temperature_status[sensor_index] != 0U ||
@@ -655,18 +722,11 @@ static void UiRender(void)
     Displ_CString(20, 8, 459, 45, "DEVICE INFORMATION",
                   Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     (void)snprintf(line, sizeof(line), "SERIAL: %s", device_serial);
-    Displ_CString(30, 55, 450, 83, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    Displ_CString(30, 48, 450, 76, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
     (void)snprintf(line, sizeof(line), "STM32 FIRMWARE: %s", STM32_FIRMWARE_VERSION);
-    Displ_CString(30, 92, 450, 120, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
-    (void)snprintf(line, sizeof(line), "ESP32 FIRMWARE: %s", esp_firmware_version);
-    Displ_CString(30, 129, 450, 157, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
-    (void)snprintf(line, sizeof(line), "IP ADDRESS: %s", esp_ip_address);
-    Displ_CString(30, 166, 450, 194, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
-    if (esp_wifi_rssi != 0)
-      (void)snprintf(line, sizeof(line), "WI-FI SIGNAL: %d dBm", esp_wifi_rssi);
-    else
-      (void)strncpy(line, "WI-FI SIGNAL: DISCONNECTED", sizeof(line));
-    Displ_CString(30, 203, 450, 231, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    Displ_CString(30, 80, 450, 108, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    DisplayDeviceRuntimeInfo();
+    DisplayDeviceUptime();
     UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
   } else if (ui_screen == UI_WIFI_SETUP) {
     Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
@@ -1336,26 +1396,35 @@ static void StartUartTask(void *argument)
         char firmware[sizeof(esp_firmware_version)] = "";
         char ip_address[sizeof(esp_ip_address)] = "";
         float rssi = 0.0f;
+        uint8_t runtime_changed = 0U;
         (void)JsonStringField(line, "esp_firmware", firmware,
                               sizeof(firmware));
         (void)JsonStringField(line, "ip", ip_address, sizeof(ip_address));
         (void)JsonNumberField(line, "rssi", &rssi);
         taskENTER_CRITICAL();
-        if (firmware[0] != '\0')
+        if (firmware[0] != '\0' &&
+            strcmp(esp_firmware_version, firmware) != 0)
         {
           (void)strncpy(esp_firmware_version, firmware,
                         sizeof(esp_firmware_version));
           esp_firmware_version[sizeof(esp_firmware_version) - 1U] = '\0';
+          runtime_changed = 1U;
         }
-        if (ip_address[0] != '\0')
+        if (ip_address[0] != '\0' &&
+            strcmp(esp_ip_address, ip_address) != 0)
         {
           (void)strncpy(esp_ip_address, ip_address,
                         sizeof(esp_ip_address));
           esp_ip_address[sizeof(esp_ip_address) - 1U] = '\0';
+          runtime_changed = 1U;
         }
-        esp_wifi_rssi = (int)rssi;
+        if (esp_wifi_rssi != (int)rssi)
+        {
+          esp_wifi_rssi = (int)rssi;
+          runtime_changed = 1U;
+        }
+        if (runtime_changed != 0U) runtime_info_sequence++;
         taskEXIT_CRITICAL();
-        if (ui_screen == UI_DEVICE_INFO) ui_redraw = 1U;
       }
       if (strstr(line, "\"type\":\"preferences\"") != NULL)
       {
@@ -1569,6 +1638,8 @@ void StartDefaultTask(void *argument)
   uint32_t displayed_qr_sequence = wifi_qr_sequence;
   uint32_t displayed_login_sequence = login_sequence;
   uint32_t displayed_server_sequence = server_status_sequence;
+  uint32_t displayed_uptime_second = UINT32_MAX;
+  uint32_t displayed_runtime_sequence = runtime_info_sequence;
   /* Infinite loop */
   for(;;)
   {
@@ -1647,6 +1718,18 @@ void StartDefaultTask(void *argument)
       {
         DisplayServerStatus();
       }
+    }
+    uint32_t uptime_second = HAL_GetTick() / 1000U;
+    if (ui_screen == UI_DEVICE_INFO &&
+        displayed_uptime_second != uptime_second)
+    {
+      displayed_uptime_second = uptime_second;
+      DisplayDeviceUptime();
+    }
+    if (displayed_runtime_sequence != runtime_info_sequence)
+    {
+      displayed_runtime_sequence = runtime_info_sequence;
+      if (ui_screen == UI_DEVICE_INFO) DisplayDeviceRuntimeInfo();
     }
 
     UiHandleTouch();

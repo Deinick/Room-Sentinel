@@ -18,7 +18,7 @@ class Severity(IntEnum):
 @dataclass(frozen=True)
 class SensorValue:
     temp_c: float | None
-    status: str  # ok | missing | disconnected | power_on | out_of_range
+    status: str
 
     @property
     def ok(self) -> bool:

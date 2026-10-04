@@ -12,8 +12,6 @@ from src.sentinel.models import Finding, Metric, Reading
 
 @dataclass
 class AnalysisResult:
-    # Everything this analyzer currently sees wrong for the reading's device.
-    # A finding that was returned before but isn't anymore counts as resolved.
     findings: list[Finding]=field(default_factory=list)
     metrics: list[Metric]=field(default_factory=list)
 

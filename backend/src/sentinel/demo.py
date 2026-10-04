@@ -3,7 +3,8 @@
 Each demo device has its own pipeline with the same analyzers and notification channels as
 real devices, but:
 - it runs on simulated time, so at 60x a minute of room passes every real second,
-- nothing is written to the database (60 fake readings a second would fill it with nonsense),
+- nothing is written to the database (60 fake readings a second would fill it with nonsense);
+  charts come from a bounded in-memory history instead,
 - "device silent" is left out, because pausing the demo isn't a silent device,
 - every signed-in user can see it (api.py).
 
@@ -23,7 +24,7 @@ from src.sentinel.pipeline import Pipeline
 from src.sentinel.profiles import PROFILES
 from src.sentinel.run import build_analyzers, build_channels
 from src.sentinel.sim.device import SimulatedDevice
-from src.sentinel.storage import NullStorage
+from src.sentinel.history import RecentHistory
 
 # Comma-separated ids; set DEMO_DEVICES="" to switch demo mode off.
 DEMO_DEVICES=[d.strip() for d in os.environ.get("DEMO_DEVICES","demo-101").split(",") if d.strip()]
@@ -49,7 +50,9 @@ class DemoRunner:
         start=datetime.now(timezone.utc)-timedelta(seconds=WARM_UP_SECONDS)
         self.device=SimulatedDevice(self.device_id,seed=self.seed,start=start)
         analyzers=[a for a in build_analyzers() if a.name!="device_silence"]
-        self.pipeline=Pipeline(analyzers,IssueTracker(advise),NullStorage(),self.channels,live=self.live)
+        # Charts for the demo come from memory (last 24 simulated hours); nothing goes to the database.
+        self.history=RecentHistory()
+        self.pipeline=Pipeline(analyzers,IssueTracker(advise),self.history,self.channels,live=self.live)
 
     def warm_up(self, seconds: int=WARM_UP_SECONDS) -> None:
         """Feed quiet history through the analyzers without notifying anyone."""

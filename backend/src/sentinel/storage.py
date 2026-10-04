@@ -29,10 +29,6 @@ class MemoryStorage(Storage):
     def save_event(self, event): self.events.append(event)
 
 
-class NullStorage(Storage):
-    """Keeps nothing. For the demo device: its readings are analyzed and shown live, never stored."""
-
-
 class PostgresStorage(Storage):
     """TimescaleDB / Tiger Cloud. Connection settings come from PGHOST, PGUSER, PGPASSWORD, ... (.env).
 

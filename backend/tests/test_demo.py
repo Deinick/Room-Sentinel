@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from src.sentinel.demo import DemoRunner
 from src.sentinel.live import LiveView
 from src.sentinel.models import EventType
-from src.sentinel.storage import NullStorage
+from src.sentinel.history import RecentHistory
 from tests.test_issues_and_pipeline import Recorder
 
 
@@ -43,7 +43,7 @@ def test_demo_alerts_go_out_but_nothing_is_stored():
         demo.advance_real(1.0)
     assert [(e.type,e.finding.kind) for e in recorder.events]==[
         (EventType.OPENED,"SENSOR_FAULT"),(EventType.RESOLVED,"SENSOR_FAULT")]
-    assert type(demo.pipeline.storage) is NullStorage
+    assert type(demo.pipeline.storage) is RecentHistory  # memory only, never the database
     assert "device_silence" not in [a.name for a in demo.pipeline.analyzers]
 
 

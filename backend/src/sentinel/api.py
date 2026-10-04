@@ -2,15 +2,17 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.dependencies import get_current_user
 from src.auth.models import User
-from src.database import get_repository
+from src.database import SessionDep, get_repository
 from src.device.services import DeviceService
 from src.sentinel.demo import DEMO_DEVICES
 from src.sentinel.demo_routes import router as demo_router
 from src.sentinel.device_readings.routes import router as device_readings_router
+from src.sentinel.history import MAX_MINUTES, DatabaseHistory, RecentHistory
 from src.sentinel.live import LIVE
 
 router=APIRouter(tags=["sentinel"])
@@ -39,3 +41,32 @@ def get_latest(my_devices: MyDevicesDep) -> dict:
 @router.get("/issues",summary="Problems open right now, with advice")
 def get_issues(my_devices: MyDevicesDep) -> list[dict]:
     return [i for i in LIVE.issues() if i["device_id"] in my_devices]
+
+
+def _history_for(device: str, my_devices: set[str], request: Request, session: AsyncSession):
+    if device not in my_devices:
+        raise HTTPException(404,f"No device {device!r} on your account.")
+    demo=getattr(request.app.state,"demos",{}).get(device)
+    return demo.history if demo else DatabaseHistory(session)
+
+
+@router.get("/history",summary="Temperatures over time for charts (bucket size chosen from the range)")
+async def get_history(device: str, my_devices: MyDevicesDep, request: Request, session: SessionDep,
+                      minutes: float=Query(60,gt=0,le=MAX_MINUTES)) -> dict:
+    source=_history_for(device,my_devices,request,session)
+    result=source.readings(device,minutes)
+    if not isinstance(source,RecentHistory):
+        result=await result
+    return {"device_id":device,"minutes":minutes,**result}
+
+
+@router.get("/metrics",summary="Calculated values over time: rate, expected rate, surprise, forecast, ...")
+async def get_metrics(device: str, my_devices: MyDevicesDep, request: Request, session: SessionDep,
+                      minutes: float=Query(60,gt=0,le=MAX_MINUTES),
+                      names: str | None=Query(None,description="comma-separated, e.g. rate_c_per_min,forecast_minutes")) -> dict:
+    source=_history_for(device,my_devices,request,session)
+    wanted={n.strip() for n in names.split(",") if n.strip()} if names else None
+    result=source.metrics(device,minutes,wanted)
+    if not isinstance(source,RecentHistory):
+        result=await result
+    return {"device_id":device,"minutes":minutes,**result}

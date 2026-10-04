@@ -4,17 +4,18 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials
 
 from src.database import get_repository
 from .models import User
-from .security import oauth2_scheme
+from .security import bearer_scheme
 from .token_service import TokenService
 
 logger = logging.getLogger(__name__)
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     token_service: Annotated[TokenService, Depends(get_repository(TokenService))],
 ) -> User:
     """
@@ -28,7 +29,7 @@ async def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    user = await token_service.get_user_from_token(token)
+    user = await token_service.get_user_from_token(credentials.credentials)
     if user is None:
         logger.warning("Token resolved to no user.")
         raise credentials_error

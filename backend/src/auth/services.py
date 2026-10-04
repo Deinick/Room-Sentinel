@@ -34,9 +34,6 @@ def _normalize_email(raw: str) -> str:
 
 class UserService(BaseService):
 
-    async def get_by_username(self, username: str) -> Optional[User]:
-        return await self.session.scalar(select(User).where(User.username == username))
-
     async def get_by_email(self, email: str) -> Optional[User]:
         return await self.session.scalar(select(User).where(User.email == email))
 
@@ -54,11 +51,6 @@ class UserService(BaseService):
         )
         return list(await self.session.scalars(stmt))
 
-    async def _ensure_username_available(self, username: str, *, exclude_id: Optional[int] = None) -> None:
-        existing = await self.get_by_username(username)
-        if existing and existing.id != exclude_id:
-            raise ValueError("Username is already taken.")
-
     async def _ensure_email_available(self, email: str, *, exclude_id: Optional[int] = None) -> None:
         existing = await self.get_by_email(email)
         if existing and existing.id != exclude_id:
@@ -67,22 +59,18 @@ class UserService(BaseService):
     async def create_user(
         self,
         *,
-        username: str,
         email: str,
         password: str,
         is_active: bool = True,
         is_superuser: bool = False,
         is_staff: bool = False,
     ) -> User:
-        username = (username or "").strip()
         email = _normalize_email(email)
         _validate_password(password)
 
-        await self._ensure_username_available(username)
         await self._ensure_email_available(email)
 
         user = User(
-            username=username,
             email=email,
             hashed_password=get_password_hash(password),
             is_active=is_active,
@@ -96,29 +84,22 @@ class UserService(BaseService):
             await self.session.flush()
         except IntegrityError:
             await self.session.rollback()
-            raise ValueError("A user with that username or email already exists.")
+            raise ValueError("A user with that email already exists.")
         await self.session.refresh(user)
 
-        logger.info("User %r created (id=%d).", user.username, user.id)
+        logger.info("User %r created (id=%d).", user.email, user.id)
         return user
 
     async def update_user(
         self,
         *,
         id: int,
-        username: Optional[str] = None,
         email: Optional[str] = None,
         password: Optional[str] = None,
     ) -> User:
         user = await self.session.get(User, id)
         if not user:
             raise ValueError("User not found.")
-
-        if username is not None:
-            new_username = username.strip()
-            if new_username != user.username:
-                await self._ensure_username_available(new_username, exclude_id=user.id)
-                user.username = new_username
 
         if email is not None:
             new_email = _normalize_email(email)

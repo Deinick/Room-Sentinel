@@ -1,7 +1,7 @@
 """metrics hypertable and issue_events table
 
-Revision ID: 0002_metrics_and_issue_events
-Revises: 0001_readings
+Revision ID: 0003_metrics_and_issue_events
+Revises: 0002_drop_users_username
 Create Date: 2026-10-03
 
 """
@@ -9,8 +9,8 @@ from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0002_metrics_and_issue_events"
-down_revision: Union[str, Sequence[str], None] = "0001_readings"
+revision: str = "0003_metrics_and_issue_events"
+down_revision: Union[str, Sequence[str], None] = "0002_drop_users_username"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

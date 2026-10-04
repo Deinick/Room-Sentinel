@@ -6,6 +6,7 @@ from datetime import datetime
 
 from src.sentinel.analysis.base import Analyzer
 from src.sentinel.issues import IssueTracker
+from src.sentinel.live import LiveView
 from src.sentinel.models import IssueEvent, Reading
 from src.sentinel.notify.base import Channel
 from src.sentinel.storage import Storage
@@ -14,16 +15,19 @@ log=logging.getLogger(__name__)
 
 
 class Pipeline:
-    def __init__(self, analyzers: list[Analyzer], tracker: IssueTracker, storage: Storage, channels: list[Channel]):
+    def __init__(self, analyzers: list[Analyzer], tracker: IssueTracker, storage: Storage, channels: list[Channel],
+                 live: LiveView | None=None):
         self.analyzers=analyzers
         self.tracker=tracker
         self.storage=storage
         self.channels=channels
+        self.live=live or LiveView()
         # process() runs on the reader, tick() on a timer thread; analyzers aren't thread-safe on their own.
         self._lock=threading.Lock()
 
     def process(self, reading: Reading) -> list[IssueEvent]:
         with self._lock:
+            self.live.on_reading(reading)
             self.storage.save_reading(reading)
             metrics=[]
             events=[]
@@ -46,6 +50,7 @@ class Pipeline:
 
     def _publish(self, events: list[IssueEvent]) -> None:
         for event in events:
+            self.live.on_event(event)
             self.storage.save_event(event)
             for channel in self.channels:
                 try:

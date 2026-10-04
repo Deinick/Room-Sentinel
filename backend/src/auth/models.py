@@ -11,7 +11,6 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    username: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -35,4 +34,4 @@ class User(Base):
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
 
     def __repr__(self) -> str:
-        return f"<User id={self.id} username={self.username!r}>"
+        return f"<User id={self.id} email={self.email!r}>"

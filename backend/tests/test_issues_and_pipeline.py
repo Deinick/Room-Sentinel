@@ -66,3 +66,8 @@ def test_pipeline_end_to_end():
     assert types==[(EventType.OPENED,"SENSOR_FAULT"),(EventType.RESOLVED,"SENSOR_FAULT"),
                    (EventType.OPENED,"DEVICE_SILENT")]
     assert storage.events==recorder.events  # every event saved, even though one channel crashed
+
+    # Live view for the API: newest reading, and only the issue that is still open.
+    assert pipeline.live.latest()["room-101"]["sensors"]["Door"]=={"temp":20.5,"status":"ok"}
+    [issue]=pipeline.live.issues()
+    assert issue["kind"]=="DEVICE_SILENT" and issue["recommendations"]

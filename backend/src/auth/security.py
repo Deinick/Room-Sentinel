@@ -1,10 +1,10 @@
 """Password hashing and the shared OAuth2 scheme."""
 
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer
 from pwdlib import PasswordHash
 
-# tokenUrl must match the POST /token route defined in routes.py.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+# Reads "Authorization: Bearer <token>". Tokens are issued by POST /token.
+bearer_scheme = HTTPBearer()
 
 _password_hash = PasswordHash.recommended()
 

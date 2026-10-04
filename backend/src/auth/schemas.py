@@ -13,6 +13,11 @@ class _OrmBase(BaseModel):
 # Auth
 # ---------------------------------------------------------------------------
 
+class LoginRequest(_OrmBase):
+    email: EmailStr
+    password: str
+
+
 class Token(_OrmBase):
     access_token: str
     token_type: str

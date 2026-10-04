@@ -11,12 +11,12 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 
 from src.database import get_repository
 from .dependencies import get_current_staff_user, get_current_user
 from .models import User
 from .schemas import (
+    LoginRequest,
     PrivateUser,
     ReadUser,
     Token,
@@ -37,14 +37,14 @@ router = APIRouter()
 # Auth
 # ---------------------------------------------------------------------------
 
-@auth_router.post("/token", response_model=Token, summary="OAuth2 password-flow login")
+@auth_router.post("/token", response_model=Token, summary="Login with email and password")
 async def login_for_access_token(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    payload: LoginRequest,
     token_service: Annotated[TokenService, Depends(get_repository(TokenService))],
 ) -> Token:
-    user = await token_service.authenticate_user(form_data.username, form_data.password)
+    user = await token_service.authenticate_user(str(payload.email), payload.password)
     if not user:
-        logger.warning("Failed login attempt for %r.", form_data.username)
+        logger.warning("Failed login attempt for %r.", str(payload.email))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password.",

@@ -1,11 +1,13 @@
 import asyncio
 import contextlib
+import os
 import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
@@ -60,6 +62,17 @@ async def _run_demos(app: FastAPI) -> None:
 
 
 app = FastAPI(title="stormhacks gateway", lifespan=lifespan)
+
+# Browsers only let the website / room view call this API from the origins listed here.
+# Comma-separated in CORS_ORIGINS; the defaults cover local development.
+_DEFAULT_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080"
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", _DEFAULT_ORIGINS).split(",") if o.strip()],
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 app.include_router(auth_router)
 app.include_router(device_router)
 app.include_router(sentinel_router)

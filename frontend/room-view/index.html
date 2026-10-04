@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Room Sentinel</title>
+  <meta name="description" content="Live 3D view of a room's temperature, with alerts, forecasts and a simulated demo mode.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="scene" aria-label="3D view of the room. Drag to rotate, scroll or pinch to zoom."></div>
+
+  <!-- Loading -->
+  <div id="loader" class="loader">
+    <div class="loader-mark">ROOM SENTINEL</div>
+    <div class="loader-bar"><span id="loader-progress"></span></div>
+    <div class="loader-text" id="loader-text">Loading the room…</div>
+  </div>
+
+  <!-- Top left: identity -->
+  <header class="brand glass" data-reveal>
+    <div class="brand-mark" aria-hidden="true"><span></span></div>
+    <div>
+      <div class="brand-name">Room Sentinel</div>
+      <div class="brand-sub"><span id="device-name">demo-101</span> · <span id="mode-chip" class="chip">Preview</span></div>
+    </div>
+  </header>
+
+  <!-- Top right: main metrics -->
+  <section class="hud" aria-label="Main metrics" data-reveal>
+    <div class="hud-main glass">
+      <div class="hud-label">Room temperature</div>
+      <div class="hud-temp"><span id="hud-temp">--.-</span><span class="hud-unit">°C</span></div>
+      <div class="hud-row">
+        <span id="hud-trend" class="trend">—</span>
+        <span id="hud-status" class="status ok">Normal</span>
+      </div>
+      <div id="hud-forecast" class="hud-forecast" hidden></div>
+    </div>
+    <div class="hud-mini">
+      <div class="mini glass"><div class="mini-label">Outside</div><div class="mini-value" id="hud-outside">—</div></div>
+      <div class="mini glass"><div class="mini-label">Heater</div><div class="mini-value" id="hud-heater">—</div></div>
+      <div class="mini glass"><div class="mini-label">Sensors</div><div class="mini-value" id="hud-sensors">—</div></div>
+    </div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+  </section>
+
+  <!-- Left rail -->
+  <nav class="rail glass" aria-label="Panels" data-reveal>
+    <button class="rail-btn" data-panel="sensors" aria-label="Sensors" title="Sensors">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+    </button>
+    <button class="rail-btn" data-panel="insights" aria-label="Insights" title="Insights">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+      <span class="rail-badge" id="insights-badge" hidden>0</span>
+    </button>
+    <button class="rail-btn" data-panel="history" aria-label="History" title="History">
+      <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg>
+    </button>
+    <button class="rail-btn" data-panel="layers" aria-label="Layers" title="Layers">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+    </button>
+    <div class="rail-sep"></div>
+    <button class="rail-btn" data-panel="connect" aria-label="Connection" title="Connection">
+      <svg viewBox="0 0 24 24"><path d="M9 7H7a5 5 0 0 0 0 10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/></svg>
+    </button>
+  </nav>
+
+  <!-- Drawers -->
+  <aside class="drawer glass" id="panel-sensors" aria-label="Sensors" hidden>
+    <div class="drawer-head"><h2>Sensors</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub">Five DS18B20 probes. Tap one to fly to it.</p>
+    <div id="sensor-list" class="sensor-list"></div>
+  </aside>
+
+  <aside class="drawer glass" id="panel-insights" aria-label="Insights" hidden>
+    <div class="drawer-head"><h2>Insights</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub" id="insights-sub">What the system has noticed, and what to do about it.</p>
+    <div id="issue-list" class="issue-list"></div>
+  </aside>
+
+  <aside class="drawer glass" id="panel-history" aria-label="History" hidden>
+    <div class="drawer-head"><h2>History</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <div class="segmented small" id="history-range">
+      <button data-minutes="10">10 min</button><button data-minutes="60" class="active">1 h</button><button data-minutes="360">6 h</button>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Temperatures</div>
+      <svg id="chart-temps" class="chart" viewBox="0 0 320 170" preserveAspectRatio="none"></svg>
+      <div class="chart-legend" id="chart-legend"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Cooling rate <span class="muted">· measured vs. expected</span></div>
+      <svg id="chart-rate" class="chart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+      <div class="chart-legend" id="rate-legend"></div>
+    </div>
+    <p class="drawer-note" id="history-note"></p>
+  </aside>
+
+  <aside class="drawer glass" id="panel-layers" aria-label="Layers" hidden>
+    <div class="drawer-head"><h2>Layers</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <label class="toggle"><input type="checkbox" id="layer-heatmap" checked><span></span>Surface heatmap</label>
+    <label class="toggle"><input type="checkbox" id="layer-air" checked><span></span>Air flow particles</label>
+    <label class="toggle"><input type="checkbox" id="layer-volume"><span></span>Volume haze</label>
+    <label class="toggle"><input type="checkbox" id="layer-labels" checked><span></span>Sensor labels</label>
+    <label class="toggle"><input type="checkbox" id="layer-rotate"><span></span>Slow auto-rotate</label>
+    <div class="field">
+      <div class="field-head"><span>Comfort target</span><b id="target-value">21.0 °C</b></div>
+      <input type="range" id="target" min="16" max="26" step="0.5" value="21">
+    </div>
+    <div class="scale">
+      <div class="scale-bar"></div>
+      <div class="scale-labels"><span id="scale-lo">17°</span><span id="scale-mid">21°</span><span id="scale-hi">25°</span></div>
+    </div>
+    <p class="drawer-note">The colours between the sensors are estimated from five point measurements, with a small vertical gradient (warm air rises). The numbers at the sensors are measured.</p>
+  </aside>
+
+  <aside class="drawer glass" id="panel-connect" aria-label="Connection" hidden>
+    <div class="drawer-head"><h2>Connection</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <div class="segmented" id="source-select">
+      <button data-source="preview" class="active">Offline preview</button><button data-source="backend">Backend</button>
+    </div>
+    <div id="backend-form" hidden>
+      <label class="input"><span>API address</span><input id="api-url" type="url" value="http://127.0.0.1:8000" autocomplete="off"></label>
+      <label class="input"><span>Email</span><input id="api-email" type="email" autocomplete="username"></label>
+      <label class="input"><span>Password</span><input id="api-password" type="password" autocomplete="current-password"></label>
+      <button class="primary" id="connect-btn">Sign in and connect</button>
+      <label class="input" id="device-field" hidden><span>Device</span><select id="device-select"></select></label>
+    </div>
+    <p class="drawer-note" id="connect-status">Offline preview: a small built-in room simulation so this page works without the backend. Its alerts are simple rules, not the real detector.</p>
+  </aside>
+
+  <!-- Bottom dock: configurator -->
+  <section class="dock" data-reveal>
+    <div class="dock-row glass" id="demo-row">
+      <div class="dock-group grow">
+        <div class="dock-label">Outside <b id="outside-value">5 °C</b></div>
+        <input type="range" id="outside" min="-20" max="30" step="1" value="5" aria-label="Outside temperature">
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Window</div>
+        <div class="segmented" id="window-select"><button data-v="closed" class="active">Closed</button><button data-v="tilted">Tilted</button><button data-v="open">Open</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Door</div>
+        <div class="segmented" id="door-select"><button data-v="false" class="active">Closed</button><button data-v="true">Open</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Heater</div>
+        <div class="segmented" id="heater-select"><button data-v="auto" class="active">Auto</button><button data-v="on">On</button><button data-v="off">Off</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Speed</div>
+        <div class="segmented" id="speed-select"><button data-v="1">1×</button><button data-v="10">10×</button><button data-v="60" class="active">60×</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Scenario</div>
+        <div class="dock-inline">
+          <select id="scenario-select" aria-label="Scenario"></select>
+          <button class="ghost" id="reset-btn" title="Back to a settled room">Reset</button>
+        </div>
+      </div>
+    </div>
+    <div class="dock-row glass views" id="view-row">
+      <button data-view="overview" class="active">Overview</button>
+      <button data-view="window">Window</button>
+      <button data-view="door">Door</button>
+      <button data-view="heater">Heater</button>
+      <button data-view="top">Top</button>
+    </div>
+  </section>
+
+  <footer class="credit">Room model “room” by <a href="https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713" target="_blank" rel="noopener">yYett</a>, CC BY 4.0 · colours between sensors are estimated</footer>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

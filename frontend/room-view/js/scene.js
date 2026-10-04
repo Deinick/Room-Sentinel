@@ -526,6 +526,11 @@ export class RoomScene {
     gsap.to(this.controls.target, { x: view.target[0], y: view.target[1], z: view.target[2], duration, ease: 'power3.inOut' });
   }
 
+  /** After a sensor was moved (2D plan): follow its new position in layout.SENSORS. */
+  moveSensor(name) {
+    this.sensorMeshes?.[name]?.group.position.set(...SENSORS[name].pos);
+  }
+
   flyToSensor(name) {
     const p = SENSORS[name].pos;
     const toCenter = new THREE.Vector3(-0.12 - p[0], 0, -1.75 - p[2]).normalize();

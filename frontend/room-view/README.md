@@ -13,17 +13,36 @@ python3 -m http.server 8080
 
 Open http://localhost:8080/room-view/
 
-## Data
+## Sign in and data
 
-- **Offline preview** (default): a small built-in copy of the backend's room simulation, so the page works
-  without the backend. Its alerts are simple rules, not the real detector.
-- **Backend**: open the connection panel (bottom icon on the left), sign in with an account on the API.
-  The API must allow this page's address: `CORS_ALLOW_ORIGINS` in the backend (defaults include
-  `http://localhost:8080` and `http://127.0.0.1:8080`).
+The page opens on a sign-in screen (create an account there too). Two ways in:
 
-## Links into a scenario
+- **Sign in**: live data from the API — the account's rooms plus the shared demo room, real alerts,
+  history and the demo controls. The server defaults to `https://stormhacks.onrender.com`; change it under
+  "Server" on the sign-in card (e.g. `http://127.0.0.1:8000` for a local backend). The API must allow this
+  page's address in `CORS_ALLOW_ORIGINS` (local defaults include `http://localhost:8080` and `http://127.0.0.1:8080`).
+  The token is kept for the browser tab only; passwords are never stored.
+- **Explore the offline demo**: a small built-in copy of the backend's room simulation, so the page works
+  without the backend or internet. Its alerts are simple rules, not the real detector.
 
-`?outside=-5&window=open` · `?scenario=window_open` · `?view=window|door|heater|top` · `?panel=insights|history|layers|sensors`
+The **Account** panel (person icon) changes the password, deletes the account or signs out.
+
+## 3D and 2D
+
+The **3D | 2D** switch in the dock shows the room plan from above, drawn from the same estimated field.
+"Move sensors" lets you drag sensors on the plan (or use the arrow keys); they move in 3D too and are
+remembered in this browser.
+
+## Links into a scenario (skip the sign-in, offline demo)
+
+`?offline` · `?outside=-5&window=open` · `?scenario=window_open` · `?view=window|door|heater|top` ·
+`?panel=insights|history|layers|sensors|account` · `?plan` (open the 2D plan)
+
+## Check the account client
+
+```bash
+node frontend/room-view/scripts/account-check.mjs
+```
 
 ## Files
 
@@ -32,9 +51,14 @@ Open http://localhost:8080/room-view/
 | `js/layout.js` | Room size, sensor positions, window/door/heater, camera views (metres) |
 | `js/scene.js` | three.js scene: room model, window/door/heater, heat surfaces, air particles, haze, sensors |
 | `js/field.js` | Estimated temperature between the sensors and the colour scale (shared by GPU and JS) |
-| `js/main.js` | HUD, panels, charts, demo controls, connection |
-| `js/backend.js` | API client (`/token`, `/latest`, `/issues`, `/history`, `/metrics`, `/demo/*`) |
-| `js/preview.js` | Offline preview simulation |
+| `js/main.js` | Sign-in, HUD, panels, account, charts, demo controls, 3D/2D switch |
+| `js/plan.js` | 2D plan (top view) with draggable sensors |
+| `js/account.js` | Account API client: register, sign in, current user, change password, delete |
+| `js/backend.js` | Room data client (`/latest`, `/issues`, `/history`, `/metrics`, `/demo/*`) |
+| `js/preview.js` | Offline demo simulation |
+
+Sign-in / registration, account settings, the account client and the 2D plan idea come from the first
+version of the website by Anton (`frontend/react-app`), redesigned to match this page.
 
 Room model "room" by [yYett](https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713), CC BY 4.0.
 The model has no window, door or radiator; they are added in code (`scene.js`).

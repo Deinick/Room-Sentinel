@@ -1,6 +1,8 @@
 import { RoomScene } from './scene.js';
 import { PreviewSource } from './preview.js';
 import { BackendSource } from './backend.js';
+import { PlanView } from './plan.js';
+import { ApiError, DEFAULT_API, PASSWORD_RULE, accountApi, validEmail, validPassword } from './account.js';
 import { AMBIENT, SENSORS, SENSOR_NAMES } from './layout.js';
 import { COLOR_SPAN, cssColor } from './field.js';
 
@@ -15,6 +17,18 @@ const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: not remembered */ } },
 };
+// The sign-in token lives for this browser tab only.
+const session = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { /* not kept */ } },
+};
+
+// Sensor positions moved on the 2D plan are remembered in this browser.
+const DEFAULT_POSITIONS = Object.fromEntries(SENSOR_NAMES.map(n => [n, [...SENSORS[n].pos]]));
+try {
+  const saved = JSON.parse(store.get('sensor-positions') || 'null');
+  for (const n of SENSOR_NAMES) if (Array.isArray(saved?.[n]) && saved[n].length === 3 && saved[n].every(Number.isFinite)) SENSORS[n].pos = saved[n];
+} catch { /* defaults */ }
 
 // ------------------------------------------------------------------ state
 
@@ -29,7 +43,17 @@ let historyMinutes = 60;
 let lastUi = 0;
 let polling = false;
 
+let account = null; // {api, token, email} when signed in
+
 const scene = new RoomScene($('scene'), { onSensorClick: name => { openPanel('sensors'); scene.flyToSensor(name); highlightSensor(name); } });
+const plan = new PlanView({
+  onMove: (name, x, z) => {
+    SENSORS[name].pos = [x, SENSORS[name].pos[1], z];
+    scene.moveSensor(name);
+    store.set('sensor-positions', JSON.stringify(Object.fromEntries(SENSOR_NAMES.map(n => [n, SENSORS[n].pos]))));
+  },
+  onSelect: name => highlightSensor(name),
+});
 
 // ------------------------------------------------------------------ boot
 
@@ -45,16 +69,21 @@ const scene = new RoomScene($('scene'), { onSensorClick: name => { openPanel('se
   $('loader').classList.add('done');
   fillScenarios();
   setMode();
+  renderAccount();
   // Links can start straight into a story, e.g. ?scenario=window_open&view=window&outside=-5
+  // (those skip the sign-in screen and run the offline demo).
   const params = new URLSearchParams(location.search);
   if (params.has('outside')) source.setControls({ outside_c: Number(params.get('outside')) });
   if (params.has('window')) source.setControls({ window: params.get('window') });
   if (params.has('scenario')) source.startScenario(params.get('scenario'));
-  if (params.has('panel')) setTimeout(() => openPanel(params.get('panel')), 1200);
-  const view = params.get('view') || 'overview';
-  scene.flyTo(view, 2.6);
-  document.querySelectorAll('#view-row button').forEach(x => x.classList.toggle('active', x.dataset.view === view));
-  gsap.from('[data-reveal]', { opacity: 0, y: 14, duration: 1.1, ease: 'power3.out', stagger: 0.09, delay: 0.5 });
+  const storyLink = ['offline', 'outside', 'window', 'scenario', 'view', 'panel', 'plan'].some(k => params.has(k));
+  if (storyLink) {
+    enterApp(params.get('view') || 'overview');
+    if (params.has('panel')) setTimeout(() => openPanel(params.get('panel')), 1200);
+    if (params.has('plan')) setTimeout(() => setDimension('2d'), 900);
+  } else if (!(await resumeSession())) {
+    showAuth();
+  }
   let last = performance.now();
   (function loop(now) {
     const dt = (now - last) / 1000;
@@ -85,6 +114,7 @@ function step(dt, now) {
   const room = ambient.length ? median(ambient) : null;
   if (state.controls && !targetTouched) setTarget(state.controls.setpoint_c, false);
   scene.setState({ temps: smooth, controls: state.controls, target, room, heaterRunning: state.heaterRunning });
+  plan.update({ sources: scene.sources, temps: smooth, target });
 
   const t = state.time.getTime();
   const rawAmbient = AMBIENT.map(n => state.sensors[n]?.temp).filter(v => v != null);
@@ -102,6 +132,7 @@ async function poll() {
     state = source.state();
     if (!state) setStatus('Connected, but this device has no data yet.');
   } catch (e) {
+    if (e instanceof ApiError && e.status === 401) { signOut('Your session has expired. Please sign in again.'); return; }
     setStatus(`Connection problem: ${e.message}. Showing the last values.`);
   } finally {
     polling = false;
@@ -422,44 +453,222 @@ function syncControls() {
   }
 }
 
-// ------------------------------------------------------------------ connection
+// ------------------------------------------------------------------ sign in (ported from the first website)
 
-document.querySelectorAll('#source-select button').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('#source-select button').forEach(x => x.classList.toggle('active', x === b));
-  const backend = b.dataset.source === 'backend';
-  $('backend-form').hidden = !backend;
-  if (!backend) usePreview();
-}));
-$('api-url').value = store.get('api-url') || $('api-url').value;
-$('api-email').value = store.get('api-email') || '';
+let authMode = 'login';
+$('auth-api').value = store.get('api-url') || DEFAULT_API;
+$('auth-email').value = store.get('api-email') || '';
 
-$('connect-btn').addEventListener('click', async () => {
-  const btn = $('connect-btn');
-  btn.disabled = true;
-  setStatus('Signing in…');
+function showAuth(notice = '') {
+  document.body.classList.add('signing-in', 'ui-hidden');
+  closePanel();
+  setDimension('3d');
+  const el = $('auth');
+  el.hidden = false;
+  setAuthMode('login');
+  authMessage(notice, false);
+  scene.flyTo('overview', 2.4);
+  scene.setLayers({ rotate: true });
+  setTimeout(() => ($('auth-email').value ? $('auth-password') : $('auth-email')).focus({ preventScroll: true }), 400);
+}
+
+function enterApp(view = 'overview') {
+  const el = $('auth');
+  el.classList.add('leaving');
+  setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 550);
+  document.body.classList.remove('signing-in', 'ui-hidden');
+  applyLayers(); // back to the user's own auto-rotate setting
+  scene.flyTo(view, 2.4);
+  document.querySelectorAll('#view-row [data-view]').forEach(x => x.classList.toggle('active', x.dataset.view === view));
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const register = mode === 'register';
+  $('auth-title').textContent = register ? 'Create your account' : 'Welcome back';
+  $('auth-sub').textContent = register ? 'One account for the website and the app.' : 'Sign in to see your room live.';
+  $('auth-confirm-field').hidden = !register;
+  $('auth-password').autocomplete = register ? 'new-password' : 'current-password';
+  $('auth-submit').innerHTML = `${register ? 'Create account' : 'Sign in'} <span aria-hidden="true">→</span>`;
+  $('auth-switch-text').textContent = register ? 'Already have an account?' : 'New to Room Sentinel?';
+  $('auth-mode').textContent = register ? 'Sign in' : 'Create an account';
+  $('auth-error').hidden = true;
+}
+
+function authMessage(text, isError) {
+  const el = $(isError ? 'auth-error' : 'auth-notice');
+  $(isError ? 'auth-notice' : 'auth-error').hidden = true;
+  el.textContent = text;
+  el.hidden = !text;
+  if (text && isError) gsap.fromTo('.auth-card', { x: -6 }, { x: 0, duration: 0.5, ease: 'elastic.out(1, 0.35)' });
+}
+
+$('auth-mode').addEventListener('click', () => setAuthMode(authMode === 'login' ? 'register' : 'login'));
+$('auth-reveal').addEventListener('click', () => {
+  const show = $('auth-password').type === 'password';
+  $('auth-password').type = $('auth-confirm').type = show ? 'text' : 'password';
+  $('auth-reveal').textContent = show ? 'Hide' : 'Show';
+});
+$('auth-offline').addEventListener('click', () => {
+  if (account) signOut('', false);
+  usePreview();
+  enterApp();
+});
+
+$('auth-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('auth-email').value.trim().toLowerCase();
+  const password = $('auth-password').value;
+  if (!validEmail(email)) return authMessage('Enter a valid email address.', true);
+  if (!validPassword(password)) return authMessage(`Password must be ${PASSWORD_RULE}`, true);
+  if (authMode === 'register' && password !== $('auth-confirm').value) return authMessage('The passwords do not match.', true);
+  const button = $('auth-submit');
+  button.disabled = true;
+  const api = accountApi($('auth-api').value.trim() || DEFAULT_API);
   try {
-    const backend = new BackendSource($('api-url').value);
-    await backend.login($('api-email').value, $('api-password').value);
-    store.set('api-url', $('api-url').value);
-    store.set('api-email', $('api-email').value);
+    if (authMode === 'register') {
+      authMessage('Creating your account… (the server may take a moment to wake up)', false);
+      await api.register(email, password);
+      $('auth-password').value = $('auth-confirm').value = '';
+      setAuthMode('login');
+      authMessage('Account created. Sign in with your email and password.', false);
+    } else {
+      authMessage('Signing in… (the server may take a moment to wake up)', false);
+      const token = await api.token(email, password);
+      const user = await api.currentUser(token);
+      store.set('api-url', api.base);
+      store.set('api-email', user.email);
+      $('auth-password').value = '';
+      await startSession(api, token, user.email);
+      enterApp();
+    }
+  } catch (err) {
+    authMessage(err.message || 'Could not complete the request.', true);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+/** Signed in: switch to live data from the API (or the offline demo if no room sends data yet). */
+async function startSession(api, token, email) {
+  account = { api, token, email };
+  session.set('token', token);
+  session.set('api', api.base);
+  session.set('email', email);
+  const backend = new BackendSource(api.base);
+  try {
+    await backend.connect(token);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) throw e;
+    backend.devices = [];
+    setStatus(`Signed in, but room data isn't available (${e.message}). Showing the offline demo.`);
+  }
+  if (backend.devices.length) {
     source = backend;
     state = source.state();
-    resetView();
-    fillDevices();
-    fillScenarios();
-    setMode();
-    setStatus(source.devices.length ? `Connected · ${source.devices.length} device(s).` : 'Connected, but no device is sending data yet.');
-  } catch (e) {
-    setStatus(`Could not connect: ${e.message}. Is the API running, and does it allow this page (CORS)?`);
+    setStatus(`Connected · ${backend.devices.length} room(s).`);
+  } else {
+    if (source.kind !== 'preview') source = new PreviewSource();
+    if (!$('connect-status').textContent.startsWith('Signed in')) setStatus('Signed in. No room is sending data to your account yet, so this is the offline demo.');
+  }
+  resetView();
+  fillDevices();
+  fillScenarios();
+  setMode();
+  renderAccount();
+}
+
+/** Back in the same tab: reuse the token if the server still accepts it. */
+async function resumeSession() {
+  const token = session.get('token'), base = session.get('api');
+  if (!token || !base) return false;
+  try {
+    const api = accountApi(base);
+    const user = await api.currentUser(token);
+    await startSession(api, token, user.email);
+    enterApp();
+    return true;
+  } catch {
+    session.set('token', null);
+    return false;
+  }
+}
+
+function signOut(notice = '', showScreen = true) {
+  account = null;
+  session.set('token', null);
+  usePreview();
+  renderAccount();
+  if (showScreen) showAuth(notice);
+}
+
+// ------------------------------------------------------------------ account panel
+
+function renderAccount() {
+  $('account-offline').hidden = !!account;
+  $('account-online').hidden = !account;
+  if (!account) return;
+  $('account-email').textContent = account.email;
+  $('account-server').textContent = account.api.base.replace(/^https?:\/\//, '');
+  $('account-avatar').textContent = account.email.slice(0, 2).toUpperCase();
+}
+
+$('account-signin').addEventListener('click', () => showAuth());
+$('signout-btn').addEventListener('click', () => signOut('You are signed out.'));
+
+function formMessage(id, text, isError) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = `form-msg${isError ? ' error' : ''}`;
+  el.hidden = !text;
+}
+
+$('password-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const current = $('pw-current').value, next = $('pw-new').value, again = $('pw-confirm').value;
+  if (!current) return formMessage('pw-msg', 'Enter your current password.', true);
+  if (!validPassword(next)) return formMessage('pw-msg', `New password must be ${PASSWORD_RULE}`, true);
+  if (next !== again) return formMessage('pw-msg', 'The new passwords do not match.', true);
+  if (next === current) return formMessage('pw-msg', 'Choose a different password from your current one.', true);
+  $('pw-submit').disabled = true;
+  formMessage('pw-msg', 'Updating…', false);
+  try {
+    // the current password is checked by signing in with it
+    let verified;
+    try { verified = await account.api.token(account.email, current); }
+    catch (err) { if (err instanceof ApiError && (err.status === 401 || err.status === 400)) throw new Error('The current password is incorrect.'); throw err; }
+    await account.api.changePassword(verified, next);
+    for (const id of ['pw-current', 'pw-new', 'pw-confirm']) $(id).value = '';
+    signOut('Password updated. Please sign in with your new password.');
+  } catch (err) {
+    formMessage('pw-msg', err.message, true);
   } finally {
-    btn.disabled = false;
+    $('pw-submit').disabled = false;
+  }
+});
+
+$('delete-start').addEventListener('click', () => { $('delete-start').hidden = true; $('delete-confirm').hidden = false; });
+$('delete-no').addEventListener('click', () => { $('delete-start').hidden = false; $('delete-confirm').hidden = true; });
+$('delete-yes').addEventListener('click', async () => {
+  $('delete-yes').disabled = true;
+  formMessage('delete-msg', '', false);
+  try {
+    await account.api.deleteAccount(account.token);
+    $('delete-start').hidden = false;
+    $('delete-confirm').hidden = true;
+    signOut('Your account has been deleted.');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) signOut('Your session has expired. Please sign in again.');
+    else formMessage('delete-msg', err.message, true);
+  } finally {
+    $('delete-yes').disabled = false;
   }
 });
 
 function fillDevices() {
-  const select = $('device-select');
-  $('device-field').hidden = !source.devices?.length;
-  select.innerHTML = (source.devices || []).map(d => `<option value="${d.id}" ${d.id === source.deviceId ? 'selected' : ''}>${d.id}${d.mode === 'demo' ? ' · simulated' : ''}</option>`).join('');
+  const devices = source.kind === 'backend' ? source.devices : [];
+  $('device-field').hidden = devices.length < 2;
+  $('device-select').innerHTML = devices.map(d => `<option value="${d.id}" ${d.id === source.deviceId ? 'selected' : ''}>${d.id}${d.mode === 'demo' ? ' · simulated' : ''}</option>`).join('');
 }
 $('device-select').addEventListener('change', async e => {
   source.deviceId = e.target.value;
@@ -468,13 +677,47 @@ $('device-select').addEventListener('change', async e => {
   setMode();
 });
 
+// ------------------------------------------------------------------ 3D / 2D
+
+document.querySelectorAll('#dim-select button').forEach(b => b.addEventListener('click', () => setDimension(b.dataset.v)));
+$('plan-edit').addEventListener('click', () => {
+  const on = !plan.editing;
+  plan.setEditing(on);
+  $('plan-edit').classList.toggle('on', on);
+  $('plan-edit').textContent = on ? 'Done' : 'Move sensors';
+  $('plan-reset').hidden = !on;
+});
+$('plan-reset').addEventListener('click', () => {
+  for (const n of SENSOR_NAMES) { SENSORS[n].pos = [...DEFAULT_POSITIONS[n]]; scene.moveSensor(n); }
+  store.set('sensor-positions', 'null');
+  plan.refreshMarkers();
+});
+
+function setDimension(dim) {
+  const twoD = dim === '2d';
+  document.querySelectorAll('#dim-select button').forEach(x => x.classList.toggle('active', x.dataset.v === dim));
+  if (twoD === plan.visible) return;
+  document.body.classList.toggle('plan-mode', twoD);
+  const el = $('plan');
+  if (twoD) {
+    el.hidden = false;
+    plan.update({ sources: scene.sources, temps: smooth, target }, true);
+    gsap.fromTo(el.querySelector('.plan-card'), { opacity: 0, scale: 0.96, y: 16 }, { opacity: 1, scale: 1, y: 0, duration: 0.7, ease: 'power3.out' });
+  } else {
+    if (plan.editing) $('plan-edit').click();
+    gsap.to(el.querySelector('.plan-card'), { opacity: 0, scale: 0.97, duration: 0.35, ease: 'power2.in', onComplete: () => { el.hidden = true; } });
+  }
+}
+
+// ------------------------------------------------------------------ data source helpers
+
 function usePreview() {
   if (source.kind === 'preview') return;
   source = new PreviewSource();
   resetView();
+  fillDevices();
   fillScenarios();
   setMode();
-  setStatus('Offline preview: a small built-in room simulation so this page works without the backend. Its alerts are simple rules, not the real detector.');
 }
 
 function resetView() {
@@ -487,9 +730,9 @@ function resetView() {
 function setMode() {
   const chip = $('mode-chip');
   const mode = source.kind === 'preview' ? 'preview' : (state?.mode === 'demo' ? 'demo' : 'live');
-  chip.textContent = { preview: 'Preview', demo: 'Simulated', live: 'Live' }[mode];
+  chip.textContent = { preview: 'Offline demo', demo: 'Simulated', live: 'Live' }[mode];
   chip.className = `chip ${mode}`;
-  $('device-name').textContent = source.kind === 'preview' ? 'offline room' : (source.deviceId || 'no device');
+  $('device-name').textContent = source.kind === 'preview' ? (account ? account.email : 'offline room') : (source.deviceId || 'no device');
 }
 
 function setStatus(text) { $('connect-status').textContent = text; }

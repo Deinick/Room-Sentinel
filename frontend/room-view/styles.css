@@ -269,6 +269,111 @@ select option { background: #141a22; }
 .label3d.bad .lvalue { color: var(--crit); }
 .labels-hidden .label3d { opacity: 0; pointer-events: none; }
 
+/* ---------------------------------------------------------------- scene states */
+#scene { transition: filter .9s var(--ease); }
+body.signing-in #scene { filter: brightness(.72) saturate(.9); }
+body.plan-mode #scene { filter: brightness(.42) saturate(.65); }
+
+/* The interface glides in with CSS transitions (run by the browser, so it never gets stuck). */
+[data-reveal] { transition: opacity .9s var(--ease), translate .9s var(--ease); }
+.hud[data-reveal] { transition-delay: .08s; }
+.rail[data-reveal] { transition-delay: .16s; }
+.dock[data-reveal] { transition-delay: .24s; }
+body.ui-hidden [data-reveal], body.ui-hidden .credit { opacity: 0; translate: 0 14px; pointer-events: none; transition-delay: 0s; }
+
+/* ---------------------------------------------------------------- sign in */
+.auth {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; padding: 24px 0 24px clamp(20px, 7vw, 120px);
+  background: linear-gradient(90deg, rgba(5,7,10,.72) 0%, rgba(5,7,10,.35) 38%, rgba(5,7,10,0) 62%);
+}
+.auth[hidden] { display: none; }
+.auth-card { animation: auth-in .9s var(--ease) .15s both; }
+.auth.leaving { transition: opacity .5s ease-in; opacity: 0; }
+.auth.leaving .auth-card { transition: translate .5s ease-in; translate: -24px 0; }
+@keyframes auth-in { from { opacity: 0; translate: -30px 0; } }
+.auth-card { width: min(420px, calc(100vw - 40px)); padding: 30px 30px 24px; border-radius: 30px; max-height: calc(100vh - 48px); overflow-y: auto; scrollbar-width: none; }
+.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; }
+.auth-eyebrow { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--accent); font-weight: 500; }
+.auth h1 { margin: 6px 0 4px; font-size: 34px; font-weight: 200; letter-spacing: -.02em; }
+.auth-sub { margin: 0 0 18px; color: var(--text-2); font-size: 14px; }
+.auth .input { margin-top: 14px; }
+.input-wrap { position: relative; display: block; }
+.input-wrap input { padding-right: 64px; }
+.reveal { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); border: 0; background: rgba(255,255,255,.08); color: var(--text-2); font-size: 11.5px; padding: 5px 10px; border-radius: 9px; }
+.reveal:hover { color: var(--text); background: rgba(255,255,255,.14); }
+.auth .primary { margin-top: 18px; display: flex; justify-content: center; gap: 8px; }
+.auth-switch { margin-top: 16px; font-size: 13px; color: var(--text-2); text-align: center; }
+.auth-switch button { border: 0; background: none; color: var(--accent); font-weight: 500; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(185,220,255,.4); }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; color: var(--text-3); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.auth-server { margin-top: 14px; font-size: 12px; color: var(--text-3); }
+.auth-server summary { cursor: pointer; list-style: none; }
+.auth-server summary::before { content: "▸ "; }
+.auth-server[open] summary::before { content: "▾ "; }
+.auth-foot { margin: 14px 0 0; font-size: 11.5px; color: var(--text-3); }
+.form-msg { margin: 12px 0 0; font-size: 12.5px; color: var(--ok); }
+.form-msg.error { color: var(--crit); }
+.wide { width: 100%; padding: 10px 14px; border-radius: 14px; font-size: 13px; }
+
+/* ---------------------------------------------------------------- account panel */
+.account-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin-top: 6px; border-radius: var(--radius-s); background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+.avatar { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; font-weight: 600; font-size: 14px; color: #0b0f15; background: linear-gradient(140deg, #e8f3ff, #8cc0f0); box-shadow: inset 0 1px 0 #fff; flex: none; }
+.account-email { font-weight: 500; word-break: break-all; }
+.account-server { font-size: 12px; color: var(--text-3); word-break: break-all; }
+.form-title { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); font-weight: 500; }
+.account-form, .danger-zone { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.account-form .ghost.wide { margin-top: 14px; }
+.danger-zone .drawer-note { margin-top: 6px; }
+.ghost.danger { color: #ffb3a8; border-color: rgba(255,122,107,.35); }
+.ghost.danger:hover { background: rgba(255,122,107,.14); color: #ffd2cb; }
+.row-buttons { display: flex; gap: 8px; margin-top: 8px; }
+.signout { margin-top: 22px; }
+
+/* ---------------------------------------------------------------- 3D / 2D switch */
+.dim-switch { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(0,0,0,.28); border: 1px solid var(--line); }
+.dim-switch button { border: 0; background: transparent; padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; letter-spacing: .06em; color: var(--text-2); transition: color .35s var(--ease), background .45s var(--ease); }
+.dim-switch button.active { color: #0b0f15; background: linear-gradient(180deg, #fff, #dfe8f3); box-shadow: 0 4px 14px rgba(0,0,0,.25), inset 0 1px 0 #fff; }
+.views-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: var(--line); }
+body.plan-mode #view-row [data-view] { display: none; }
+body.plan-mode .views-sep { display: none; }
+
+/* ---------------------------------------------------------------- 2D plan */
+.plan { position: fixed; z-index: 9; left: 96px; right: 340px; top: 92px; bottom: 176px; display: grid; place-items: center; pointer-events: none; }
+.plan[hidden] { display: none; }
+.plan-card { pointer-events: auto; width: 100%; height: 100%; padding: 18px 22px 16px; display: flex; flex-direction: column; border-radius: 28px; }
+.plan-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.plan-head h2 { margin: 0; font-size: 20px; font-weight: 300; display: flex; align-items: center; gap: 10px; }
+.plan-sub { margin: 4px 0 0; color: var(--text-3); font-size: 12.5px; }
+.plan-actions { display: flex; gap: 8px; }
+.plan-actions .ghost.on { background: rgba(185,220,255,.18); color: var(--text); border-color: rgba(185,220,255,.45); }
+.plan-stage { position: relative; flex: 1; min-height: 0; margin: 14px 26px 22px 6px; }
+.plan-floor { position: absolute; border-radius: 16px; overflow: hidden; background: #0d1219; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 20px 50px rgba(0,0,0,.35); }
+#plan-canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: auto; }
+.plan-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.plan-dim { position: absolute; font: 11px var(--mono); color: var(--text-3); white-space: nowrap; }
+.plan-sensors { position: absolute; pointer-events: none; }
+.plan-sensors .plan-marker { pointer-events: auto; }
+.plan-marker.below .pill { top: 22px; }
+.plan-marker.at-left .pill { left: -6px; transform: none; }
+.plan-marker.at-right .pill { left: auto; right: -6px; transform: none; }
+.plan-marker { position: absolute; transform: translate(-50%, -50%); border: 0; background: none; padding: 0; cursor: pointer; touch-action: none; }
+.plan-marker .dot { display: block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.12), 0 0 14px currentColor; margin: 0 auto; }
+.plan-marker .pill { position: absolute; left: 50%; top: -34px; transform: translateX(-50%); }
+.plan-marker .pill { display: flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px; white-space: nowrap;
+  background: linear-gradient(150deg, rgba(255,255,255,.2), rgba(255,255,255,.06)), rgba(12,16,23,.5);
+  backdrop-filter: blur(12px) saturate(160%); -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255,255,255,.24); box-shadow: 0 6px 18px rgba(0,0,0,.35); font-size: 11px; color: var(--text-2); }
+.plan-marker .pill b { color: var(--text); font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.plan-marker.bad .pill b { color: var(--crit); }
+.plan.editing .plan-marker { cursor: grab; }
+.plan.editing .plan-marker:active { cursor: grabbing; }
+.plan.editing .plan-marker .dot { animation: pulse 1.6s ease-in-out infinite; }
+.plan-marker:focus-visible .dot { outline: 2px solid var(--accent); outline-offset: 3px; }
+.plan-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 11.5px; color: var(--text-3); }
+.plan-legend { display: flex; align-items: center; gap: 8px; font: 11px var(--mono); }
+.plan-legend i { width: 140px; height: 8px; border-radius: 5px; background: linear-gradient(90deg, #2b6dff, #4dc3ff 25%, #dfeefa 50%, #ffb45c 75%, #ff5240); }
+
 /* ---------------------------------------------------------------- small screens */
 @media (max-width: 820px) {
   .brand { top: 12px; left: 12px; padding: 9px 12px; }
@@ -289,6 +394,8 @@ select option { background: #141a22; }
   .dock-row { gap: 12px; padding: 10px 12px; }
   .views button { padding: 8px 12px; font-size: 12px; }
   .credit { display: none; }
+  .auth { padding: 16px; justify-content: center; background: rgba(5,7,10,.55); }
+  .plan { left: 12px; right: 12px; top: 150px; bottom: 214px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }

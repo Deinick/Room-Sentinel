@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import ts from 'typescript';
+
+// Exercise the actual client without creating or deleting live accounts.
+const source = readFileSync(new URL('../src/auth.ts', import.meta.url), 'utf8').replace(/^const API_BASE =.*$/m, "const API_BASE = 'https://stormhacks.onrender.com';");
+const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } });
+const { auth, ApiError } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const calls = [];
+let response;
+globalThis.fetch = async (url, options) => { calls.push({ url, ...options }); return response.clone(); };
+const reply = (body, status = 200) => { response = new Response(status === 204 ? null : JSON.stringify(body), { status }); };
+reply({ id: 7, email: 'user@example.com' }, 201);
+await auth.register('user@example.com', 'password123');
+assert.equal(calls.at(-1).url, 'https://stormhacks.onrender.com/users');
+assert.equal(calls.at(-1).method, 'POST');
+assert.deepEqual(JSON.parse(calls.at(-1).body), { email: 'user@example.com', password: 'password123' });
+reply({ access_token: 'test-token', token_type: 'bearer' });
+assert.equal(await auth.token('user@example.com', 'password123'), 'test-token');
+assert.equal(calls.at(-1).url.endsWith('/token'), true);
+reply({ id: 7, email: 'user@example.com' });
+await auth.currentUser('test-token');
+assert.equal(calls.at(-1).method, 'GET');
+assert.equal(calls.at(-1).headers.Authorization, 'Bearer test-token');
+await auth.changePassword('test-token', 'newpassword123');
+assert.equal(calls.at(-1).method, 'PUT');
+assert.deepEqual(JSON.parse(calls.at(-1).body), { password1: 'newpassword123', password2: 'newpassword123' });
+reply(null, 204);
+await auth.deleteAccount('test-token');
+assert.equal(calls.at(-1).method, 'DELETE');
+assert.equal(calls.at(-1).headers.Authorization, 'Bearer test-token');
+reply({ detail: 'Incorrect credentials' }, 401);
+await assert.rejects(auth.token('user@example.com', 'wrongpass1'), e => e instanceof ApiError && e.status === 401 && e.message === 'Incorrect credentials');
+reply({ detail: [{ msg: 'Invalid email' }] }, 422);
+await assert.rejects(auth.register('bad', 'password123'), /Invalid email/);
+globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+await assert.rejects(auth.currentUser('test-token'), /Could not reach the account server/);
+console.log('Account API client checks passed: endpoints, payloads, bearer authorization, 204 deletion, and error handling.');

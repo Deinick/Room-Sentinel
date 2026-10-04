@@ -1,5 +1,6 @@
-// The real thing: the Room Sentinel API (backend/src/sentinel). Login, then poll.
-//   POST /token {email, password}           -> bearer token
+import { ApiError } from './account.js';
+
+// The real thing: the Room Sentinel API (backend/src/sentinel). Sign in (account.js), then poll.
 //   GET  /latest, /issues                   -> live readings and open issues with advice
 //   GET  /history, /metrics                 -> charts
 //   GET/POST /demo/{id}/...                 -> demo controls (demo devices only)
@@ -22,19 +23,19 @@ export class BackendSource {
     const response = await fetch(this.base + path, {
       ...options,
       headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}), ...(options.headers || {}) },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(20000), // the deployed server may need a moment to wake up
     });
     if (!response.ok) {
       let detail = `${response.status}`;
       try { detail = (await response.json()).detail || detail; } catch { /* not JSON */ }
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      throw new ApiError(typeof detail === 'string' ? detail : JSON.stringify(detail), response.status);
     }
     return response.status === 204 ? null : response.json();
   }
 
-  async login(email, password) {
-    const result = await this._fetch('/token', { method: 'POST', body: JSON.stringify({ email, password }) });
-    this.token = result.access_token;
+  /** Start with a token from the sign-in screen (account.js). */
+  async connect(token) {
+    this.token = token;
     await this.refresh();
     this.devices = Object.entries(this.latest).map(([id, r]) => ({ id, mode: r.mode }));
     this.deviceId = (this.devices.find(d => d.mode === 'device') || this.devices[0] || {}).id || null;

@@ -142,6 +142,7 @@ static void DisplayWifiStatus(void);
 static void StartUartTask(void *argument);
 static void UiRender(void);
 static void UiHandleTouch(void);
+static void UiServiceDelay(uint32_t duration_ms);
 static void Esp32SendCommand(const char *command);
 static void Esp32SendTelemetry(void);
 static uint8_t JsonStringField(const char *json, const char *name,
@@ -247,8 +248,7 @@ static void DisplayTemperature(uint8_t sensor_index)
   }
   else
   {
-    (void)snprintf(line, sizeof(line), "SENSOR ERROR %u",
-                   (unsigned int)temperature_status[sensor_index]);
+    (void)strncpy(line, "NOT CONNECTED", sizeof(line));
   }
 
   if (strcmp(line, displayed_temperature_text[sensor_index]) == 0)
@@ -260,7 +260,7 @@ static void DisplayTemperature(uint8_t sensor_index)
   displayed_temperature_text[sensor_index]
                             [sizeof(displayed_temperature_text[0]) - 1U] = '\0';
 
-  Displ_CString((uint16_t)(x + 88U), (uint16_t)(y + 19U),
+  Displ_CString((uint16_t)(x + 20U), (uint16_t)(y + 28U),
                 (uint16_t)(x + 212U), (uint16_t)(y + 56U), line,
                 Font16, 1U,
                 (temperature_status[sensor_index] == 0U) ? UI_TEXT : RED,
@@ -274,7 +274,18 @@ static void DisplayWifiStatus(void)
   text[sizeof(text) - 1U] = '\0';
 
   const char *value = (strncmp(text, "WIFI: ", 6U) == 0) ? &text[6] : text;
-  Displ_CString(334U, 229U, 458U, 266U, value,
+  char display_value[sizeof(text)];
+  size_t value_length = strlen(value);
+  if (value_length >= sizeof(display_value)) value_length = sizeof(display_value) - 1U;
+  for (size_t i = 0U; i < value_length; i++)
+  {
+    char character = value[i];
+    if (character == '_') character = ' ';
+    if (character >= 'a' && character <= 'z') character -= ('a' - 'A');
+    display_value[i] = character;
+  }
+  display_value[value_length] = '\0';
+  Displ_CString(266U, 238U, 458U, 266U, display_value,
                 Font16, 1U, UI_PRIMARY, UI_PANEL);
 }
 
@@ -286,8 +297,8 @@ static void UiDrawSensorCard(uint8_t sensor_index, const char *label,
   Displ_fillRoundRect(x, y, 222, 66, 8, UI_PANEL);
   Displ_drawRoundRect(x, y, 222, 66, 8, UI_PANEL_BORDER);
   Displ_FillArea((uint16_t)(x + 8U), (uint16_t)(y + 10U), 5U, 46U, accent);
-  Displ_CString((uint16_t)(x + 18U), (uint16_t)(y + 8U),
-                (uint16_t)(x + 90U), (uint16_t)(y + 57U), label,
+  Displ_CString((uint16_t)(x + 20U), (uint16_t)(y + 5U),
+                (uint16_t)(x + 212U), (uint16_t)(y + 29U), label,
                 Font16, 1U, UI_MUTED, UI_PANEL);
 }
 
@@ -376,7 +387,7 @@ static void UiRender(void)
     Displ_fillRoundRect(246, 210, 222, 66, 8, UI_PANEL);
     Displ_drawRoundRect(246, 210, 222, 66, 8, UI_PANEL_BORDER);
     Displ_FillArea(254, 220, 5, 46, UI_PRIMARY);
-    Displ_CString(264, 218, 334, 266, "WI-FI",
+    Displ_CString(266, 215, 458, 239, "WI-FI CONNECTION",
                   Font16, 1U, UI_MUTED, UI_PANEL);
     DisplayWifiStatus();
   } else if (ui_screen == UI_SETTINGS) {
@@ -426,7 +437,7 @@ static void UiHandleTouch(void)
 {
   uint16_t x, y;
   uint8_t touched;
-  if (Touch_GotATouch(0) == 0U) {
+  if (Touch_GotATouch(0) == 0U && Touch_PollTouch() == 0U) {
     return;
   }
   Touch_GetXYtouch(&x, &y, &touched);
@@ -436,36 +447,36 @@ static void UiHandleTouch(void)
     return;
   }
 
-  if (ui_screen == UI_HOME && x >= 410U && y <= 60U) {
+  if (ui_screen == UI_HOME && x >= 395U && y <= 70U) {
     ui_screen = UI_SETTINGS;
     ui_redraw = 1U;
   } else if (ui_screen == UI_SETTINGS) {
-    if (y >= 55U && y <= 115U) {
+    if (y >= 45U && y < 115U) {
       wifi_qr_payload[0] = '\0';
       ui_screen = UI_WIFI_SETUP;
       ui_redraw = 1U;
       Esp32SendCommand("START_PROVISIONING");
-    } else if (y >= 115U && y <= 175U) {
+    } else if (y >= 115U && y < 175U) {
       login_qr_payload[0] = '\0';
       (void)strncpy(login_status_text, "Requesting login...",
                     sizeof(login_status_text));
       ui_screen = UI_ACCOUNT_LOGIN;
       ui_redraw = 1U;
       Esp32SendCommand("START_LOGIN");
-    } else if (y >= 175U && y <= 240U) {
+    } else if (y >= 175U && y < 240U) {
       ui_screen = UI_RESET_CONFIRM;
       ui_redraw = 1U;
-    } else if (x <= 160U && y >= 250U) {
+    } else if (x <= 180U && y >= 240U) {
       ui_screen = UI_HOME;
       ui_redraw = 1U;
     }
-  } else if (ui_screen == UI_WIFI_SETUP && x <= 160U && y >= 250U) {
+  } else if (ui_screen == UI_WIFI_SETUP && x <= 180U && y >= 240U) {
     ui_screen = UI_SETTINGS;
     ui_redraw = 1U;
-  } else if (ui_screen == UI_ACCOUNT_LOGIN && x <= 160U && y >= 250U) {
+  } else if (ui_screen == UI_ACCOUNT_LOGIN && x <= 180U && y >= 240U) {
     ui_screen = UI_SETTINGS;
     ui_redraw = 1U;
-  } else if (ui_screen == UI_RESET_CONFIRM && y >= 160U && y <= 255U) {
+  } else if (ui_screen == UI_RESET_CONFIRM && y >= 145U && y <= 270U) {
     if (x < 240U) {
       ui_screen = UI_SETTINGS;
     } else {
@@ -474,6 +485,22 @@ static void UiHandleTouch(void)
       Esp32SendCommand("FACTORY_RESET");
     }
     ui_redraw = 1U;
+  }
+}
+
+static void UiServiceDelay(uint32_t duration_ms)
+{
+  uint32_t elapsed = 0U;
+  while (elapsed < duration_ms)
+  {
+    UiHandleTouch();
+    if (ui_redraw != 0U)
+    {
+      UiRender();
+    }
+    uint32_t step = ((duration_ms - elapsed) > 20U) ? 20U : (duration_ms - elapsed);
+    osDelay(step);
+    elapsed += step;
   }
 }
 
@@ -1095,7 +1122,7 @@ void StartDefaultTask(void *argument)
       temperature_status[i] = DS18B20_StartConversion(&temperature_sensors[i]);
     }
 
-    osDelay(SENSOR_CONVERSION_TIME_MS);
+    UiServiceDelay(SENSOR_CONVERSION_TIME_MS);
 
     for (uint8_t i = 0U; i < SENSOR_COUNT; i++)
     {
@@ -1143,7 +1170,7 @@ void StartDefaultTask(void *argument)
       UiRender();
     }
 
-    osDelay(SENSOR_REFRESH_TIME_MS);
+    UiServiceDelay(SENSOR_REFRESH_TIME_MS);
   }
   /* USER CODE END 5 */
 }

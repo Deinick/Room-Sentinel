@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Column, DateTime, Double, Index, Table, Text
+from sqlalchemy import BigInteger, Column, DateTime, Double, ForeignKey, Index, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -33,7 +33,7 @@ readings_table = Table(
     "readings",
     Base.metadata,
     Column("time", DateTime(timezone=True), nullable=False),
-    Column("device_id", Text, nullable=False),
+    Column("device_id", Text, ForeignKey("devices.device_id"), nullable=False),
     Column("sensor", Text, nullable=False),
     Column("temp_c", Double),
     Column("status", Text, nullable=False),

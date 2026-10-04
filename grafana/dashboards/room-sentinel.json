@@ -55,7 +55,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, sensor, avg(temp_c) AS temp_c\nFROM readings\nWHERE $__timeFilter(time) AND device_id = '$device' AND temp_c IS NOT NULL\nGROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, sensor AS metric, avg(temp_c) AS temp_c\nFROM readings\nWHERE $__timeFilter(time) AND device_id = '$device' AND temp_c IS NOT NULL\nGROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -75,9 +75,70 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "none"
+          "unit": "celsius"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "room_c"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Room"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rate_c_per_min"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cooling rate"
+              },
+              {
+                "id": "unit",
+                "value": "C/min"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "\u00b0C/min"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expected_rate_c_per_min"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Expected rate"
+              },
+              {
+                "id": "unit",
+                "value": "C/min"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "\u00b0C/min"
+              }
+            ]
+          }
+        ]
       },
       "targets": [
         {
@@ -89,7 +150,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, name, avg(value) AS value\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name IN ('room_c', 'rate_c_per_min', 'expected_rate_c_per_min')\nGROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, name AS metric, avg(value) AS value\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name IN ('room_c', 'rate_c_per_min', 'expected_rate_c_per_min')\nGROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -143,7 +204,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "none"
+          "unit": "none",
+          "decimals": 0,
+          "min": 0
         },
         "overrides": []
       },

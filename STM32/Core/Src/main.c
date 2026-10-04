@@ -48,11 +48,12 @@ typedef enum {
 #define SENSOR_COUNT 5U
 #define SENSOR_CONVERSION_TIME_MS 200U
 #define SENSOR_REFRESH_TIME_MS 800U
-#define UI_BACKGROUND BLACK
-#define UI_PANEL DDDD_WHITE
-#define UI_PANEL_BORDER DDD_WHITE
-#define UI_PRIMARY CYAN
-#define UI_MUTED D_WHITE
+#define UI_BACKGROUND 0xF7BDU /* warm white #F7F4EE */
+#define UI_PANEL 0xFFFFU      /* white */
+#define UI_PANEL_BORDER 0xDEB9U
+#define UI_PRIMARY 0xF465U    /* orange #F28C28 */
+#define UI_TEXT 0x2924U       /* charcoal #2B2520 */
+#define UI_MUTED 0x7B6CU      /* warm gray #7A6F65 */
 
 /* USER CODE END PD */
 
@@ -262,7 +263,7 @@ static void DisplayTemperature(uint8_t sensor_index)
   Displ_CString((uint16_t)(x + 88U), (uint16_t)(y + 19U),
                 (uint16_t)(x + 212U), (uint16_t)(y + 56U), line,
                 Font16, 1U,
-                (temperature_status[sensor_index] == 0U) ? WHITE : RED,
+                (temperature_status[sensor_index] == 0U) ? UI_TEXT : RED,
                 UI_PANEL);
 }
 
@@ -293,10 +294,15 @@ static void UiDrawSensorCard(uint8_t sensor_index, const char *label,
 static void UiDrawButton(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                          const char *label, uint16_t color)
 {
+  uint16_t text_color = (color == UI_PANEL) ? UI_TEXT : WHITE;
+  uint16_t border_color = (color == UI_PANEL) ? UI_PRIMARY : color;
   Displ_fillRoundRect(x, y, w, h, 8, color);
-  Displ_drawRoundRect(x, y, w, h, 8, WHITE);
+  Displ_drawRoundRect(x, y, w, h, 8, border_color);
+  Displ_FillArea((uint16_t)(x + 10U), (uint16_t)(y + 10U), 5U,
+                 (uint16_t)(h - 20U),
+                 (color == UI_PANEL) ? UI_PRIMARY : WHITE);
   Displ_CString(x, y, (uint16_t)(x + w - 1U), (uint16_t)(y + h - 1U),
-                label, Font16, 1U, WHITE, color);
+                label, Font16, 1U, text_color, color);
 }
 
 static void UiDrawGear(void)
@@ -321,7 +327,7 @@ static void UiDrawQrCode(const char *payload)
       !qrcodegen_encodeText(payload, temp, qr, qrcodegen_Ecc_LOW,
                             1, QR_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
     Displ_CString(40, 125, 439, 165, "Waiting for ESP32 setup data...",
-                  Font16, 1U, YELLOW, UI_BACKGROUND);
+                  Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     return;
   }
 
@@ -354,10 +360,10 @@ static void UiRender(void)
       "CENTRE", "WINDOW", "HEATER", "DOOR", "FAR WALL"
     };
     static const uint16_t sensor_accents[SENSOR_COUNT] = {
-      CYAN, D_BLUE, D_RED, D_GREEN, D_YELLOW
+      UI_PRIMARY, UI_PRIMARY, UI_PRIMARY, UI_PRIMARY, UI_PRIMARY
     };
     Displ_CString(14, 7, 205, 45, "ROOM SENTINEL",
-                  Font16, 1U, WHITE, UI_BACKGROUND);
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
     Displ_CString(210, 7, 408, 45, "LIVE MONITOR",
                   Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawGear();
@@ -375,35 +381,35 @@ static void UiRender(void)
     DisplayWifiStatus();
   } else if (ui_screen == UI_SETTINGS) {
     Displ_CString(20, 10, 459, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
-    UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", DDD_WHITE);
-    UiDrawButton(40, 120, 400, 50, "ACCOUNT LOGIN", DDD_WHITE);
+    UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", UI_PANEL);
+    UiDrawButton(40, 120, 400, 50, "ACCOUNT LOGIN", UI_PANEL);
     UiDrawButton(40, 180, 400, 50, "FACTORY RESET", D_RED);
-    UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
+    UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
   } else if (ui_screen == UI_WIFI_SETUP) {
     Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawQrCode(wifi_qr_payload);
-    UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
+    UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
     if (strncmp(wifi_qr_payload, "http://", 7U) == 0 ||
         strncmp(wifi_qr_payload, "https://", 8U) == 0) {
       Displ_CString(155, 270, 465, 310, "2. Scan to open setup",
-                    Font16, 1U, WHITE, UI_BACKGROUND);
+                    Font16, 1U, UI_TEXT, UI_BACKGROUND);
     } else {
       Displ_CString(155, 270, 465, 310, "1. Scan to connect",
-                    Font16, 1U, WHITE, UI_BACKGROUND);
+                    Font16, 1U, UI_TEXT, UI_BACKGROUND);
     }
   } else if (ui_screen == UI_ACCOUNT_LOGIN) {
     Displ_CString(10, 8, 185, 45, "ACCOUNT LOGIN", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     Displ_CString(190, 8, 470, 45, device_serial,
-                  Font16, 1U, WHITE, UI_BACKGROUND);
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
     UiDrawQrCode(login_qr_payload);
-    UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
+    UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
     Displ_CString(150, 270, 470, 310, login_status_text,
-                  Font16, 1U, WHITE, UI_BACKGROUND);
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
   } else {
-    Displ_CString(20, 30, 459, 70, "FACTORY RESET?", Font16, 1U, YELLOW, UI_BACKGROUND);
+    Displ_CString(20, 30, 459, 70, "FACTORY RESET?", Font16, 1U, D_RED, UI_BACKGROUND);
     Displ_CString(30, 90, 449, 130, "Wi-Fi settings will be erased.",
-                  Font16, 1U, WHITE, UI_BACKGROUND);
-    UiDrawButton(40, 175, 180, 65, "CANCEL", DDD_WHITE);
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    UiDrawButton(40, 175, 180, 65, "CANCEL", UI_PANEL);
     UiDrawButton(260, 175, 180, 65, "RESET", D_RED);
   }
   ui_redraw = 0U;
@@ -512,7 +518,7 @@ int main(void)
   DS18B20_SetTimer(TIM6);
 
   Displ_Init(Displ_Orientat_270);
-  Displ_CLS(BLUE);
+  Displ_CLS(UI_BACKGROUND);
   Displ_BackLight('I');
 
   for (uint8_t i = 0U; i < SENSOR_COUNT; i++)

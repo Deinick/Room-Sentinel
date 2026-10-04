@@ -77,6 +77,10 @@ button { cursor: pointer; }
   pointer-events: none;
   z-index: -1;
 }
+/* In panels that scroll, the edge layers would scroll with the content and leave a line across it.
+   The border and inset shadows above still draw the edge there. */
+.drawer.glass::before, .drawer.glass::after,
+.auth-card.glass::before, .auth-card.glass::after { display: none; }
 
 /* ---------------------------------------------------------------- loader */
 .loader {

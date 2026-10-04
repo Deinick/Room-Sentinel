@@ -48,6 +48,11 @@ typedef enum {
 #define SENSOR_COUNT 5U
 #define SENSOR_CONVERSION_TIME_MS 200U
 #define SENSOR_REFRESH_TIME_MS 800U
+#define UI_BACKGROUND BLACK
+#define UI_PANEL DDDD_WHITE
+#define UI_PANEL_BORDER DDD_WHITE
+#define UI_PRIMARY CYAN
+#define UI_MUTED D_WHITE
 
 /* USER CODE END PD */
 
@@ -70,7 +75,7 @@ UART_HandleTypeDef huart3;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 1024 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
@@ -137,6 +142,7 @@ static void StartUartTask(void *argument);
 static void UiRender(void);
 static void UiHandleTouch(void);
 static void Esp32SendCommand(const char *command);
+static void Esp32SendTelemetry(void);
 static uint8_t JsonStringField(const char *json, const char *name,
                                char *value, size_t value_size);
 
@@ -161,10 +167,69 @@ static uint8_t JsonStringField(const char *json, const char *name,
   return 1U;
 }
 
+static void AppendTemperatureJson(char *buffer, size_t buffer_size,
+                                  size_t *offset, uint8_t sensor_index,
+                                  const char *name)
+{
+  int written;
+  if (temperature_status[sensor_index] != 0U)
+  {
+    written = snprintf(&buffer[*offset], buffer_size - *offset,
+                       "\"%s\":null", name);
+  }
+  else
+  {
+    float temperature = temperature_sensors[sensor_index].temperature;
+    int32_t tenths = (int32_t)((temperature >= 0.0f)
+                              ? (temperature * 10.0f + 0.5f)
+                              : (temperature * 10.0f - 0.5f));
+    int32_t magnitude = (tenths < 0) ? -tenths : tenths;
+    written = snprintf(&buffer[*offset], buffer_size - *offset,
+                       "\"%s\":%s%ld.%ld", name,
+                       (tenths < 0) ? "-" : "",
+                       (long)(magnitude / 10), (long)(magnitude % 10));
+  }
+  if (written > 0 && (size_t)written < buffer_size - *offset)
+  {
+    *offset += (size_t)written;
+  }
+}
+
+static void Esp32SendTelemetry(void)
+{
+  static uint32_t sequence;
+  static const char *const names[SENSOR_COUNT] = {
+    "Centre", "Window", "Heater", "Door", "Far wall"
+  };
+  char message[256];
+  size_t offset = (size_t)snprintf(message, sizeof(message),
+      "{\"type\":\"telemetry\",\"sequence\":%lu,\"uptime_ms\":%lu,",
+      (unsigned long)++sequence, (unsigned long)HAL_GetTick());
+
+  for (uint8_t i = 0U; i < SENSOR_COUNT && offset < sizeof(message); i++)
+  {
+    AppendTemperatureJson(message, sizeof(message), &offset, i, names[i]);
+    if (i + 1U < SENSOR_COUNT && offset + 1U < sizeof(message))
+    {
+      message[offset++] = ',';
+      message[offset] = '\0';
+    }
+  }
+  if (offset + 2U < sizeof(message))
+  {
+    message[offset++] = '}';
+    message[offset++] = '\n';
+    message[offset] = '\0';
+    (void)HAL_UART_Transmit(&huart3, (uint8_t *)message,
+                            (uint16_t)offset, 250U);
+  }
+}
+
 static void DisplayTemperature(uint8_t sensor_index)
 {
   char line[32];
-  uint16_t y = (uint16_t)(55U + (sensor_index * 42U));
+  uint16_t x = (sensor_index % 2U == 0U) ? 12U : 246U;
+  uint16_t y = (uint16_t)(58U + ((sensor_index / 2U) * 76U));
 
   if (temperature_status[sensor_index] == 0U)
   {
@@ -174,16 +239,14 @@ static void DisplayTemperature(uint8_t sensor_index)
                               : (temperature * 10.0f - 0.5f));
     int32_t magnitude = (tenths < 0) ? -tenths : tenths;
 
-    (void)snprintf(line, sizeof(line), "TEMP %u: %s%ld.%ld C",
-                   (unsigned int)(sensor_index + 1U),
+    (void)snprintf(line, sizeof(line), "%s%ld.%ld C",
                    (tenths < 0) ? "-" : "",
                    (long)(magnitude / 10),
                    (long)(magnitude % 10));
   }
   else
   {
-    (void)snprintf(line, sizeof(line), "TEMP %u: ERROR %u",
-                   (unsigned int)(sensor_index + 1U),
+    (void)snprintf(line, sizeof(line), "SENSOR ERROR %u",
                    (unsigned int)temperature_status[sensor_index]);
   }
 
@@ -196,8 +259,11 @@ static void DisplayTemperature(uint8_t sensor_index)
   displayed_temperature_text[sensor_index]
                             [sizeof(displayed_temperature_text[0]) - 1U] = '\0';
 
-  Displ_CString(20U, y, 459U, (uint16_t)(y + 36U), line,
-                Font16, 1U, WHITE, BLUE);
+  Displ_CString((uint16_t)(x + 88U), (uint16_t)(y + 19U),
+                (uint16_t)(x + 212U), (uint16_t)(y + 56U), line,
+                Font16, 1U,
+                (temperature_status[sensor_index] == 0U) ? WHITE : RED,
+                UI_PANEL);
 }
 
 static void DisplayWifiStatus(void)
@@ -206,8 +272,22 @@ static void DisplayWifiStatus(void)
   (void)strncpy(text, wifi_status_text, sizeof(text));
   text[sizeof(text) - 1U] = '\0';
 
-  Displ_CString(20U, 278U, 459U, 316U, text,
-                Font16, 1U, YELLOW, BLUE);
+  const char *value = (strncmp(text, "WIFI: ", 6U) == 0) ? &text[6] : text;
+  Displ_CString(334U, 229U, 458U, 266U, value,
+                Font16, 1U, UI_PRIMARY, UI_PANEL);
+}
+
+static void UiDrawSensorCard(uint8_t sensor_index, const char *label,
+                             uint16_t accent)
+{
+  uint16_t x = (sensor_index % 2U == 0U) ? 12U : 246U;
+  uint16_t y = (uint16_t)(58U + ((sensor_index / 2U) * 76U));
+  Displ_fillRoundRect(x, y, 222, 66, 8, UI_PANEL);
+  Displ_drawRoundRect(x, y, 222, 66, 8, UI_PANEL_BORDER);
+  Displ_FillArea((uint16_t)(x + 8U), (uint16_t)(y + 10U), 5U, 46U, accent);
+  Displ_CString((uint16_t)(x + 18U), (uint16_t)(y + 8U),
+                (uint16_t)(x + 90U), (uint16_t)(y + 57U), label,
+                Font16, 1U, UI_MUTED, UI_PANEL);
 }
 
 static void UiDrawButton(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
@@ -221,13 +301,14 @@ static void UiDrawButton(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
 
 static void UiDrawGear(void)
 {
-  Displ_fillRoundRect(420, 6, 54, 44, 7, DDD_WHITE);
-  Displ_drawCircle(447, 28, 12, WHITE);
-  Displ_fillCircle(447, 28, 4, WHITE);
-  Displ_FillArea(444, 10, 7, 7, WHITE);
-  Displ_FillArea(444, 39, 7, 7, WHITE);
-  Displ_FillArea(429, 25, 7, 7, WHITE);
-  Displ_FillArea(459, 25, 7, 7, WHITE);
+  Displ_fillRoundRect(424, 7, 48, 40, 9, UI_PANEL);
+  Displ_drawRoundRect(424, 7, 48, 40, 9, UI_PANEL_BORDER);
+  Displ_drawCircle(448, 27, 10, UI_PRIMARY);
+  Displ_fillCircle(448, 27, 3, UI_PRIMARY);
+  Displ_FillArea(445, 12, 7, 5, UI_PRIMARY);
+  Displ_FillArea(445, 37, 7, 5, UI_PRIMARY);
+  Displ_FillArea(433, 24, 5, 7, UI_PRIMARY);
+  Displ_FillArea(458, 24, 5, 7, UI_PRIMARY);
 }
 
 static void UiDrawQrCode(const char *payload)
@@ -240,7 +321,7 @@ static void UiDrawQrCode(const char *payload)
       !qrcodegen_encodeText(payload, temp, qr, qrcodegen_Ecc_LOW,
                             1, QR_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
     Displ_CString(40, 125, 439, 165, "Waiting for ESP32 setup data...",
-                  Font16, 1U, YELLOW, BLUE);
+                  Font16, 1U, YELLOW, UI_BACKGROUND);
     return;
   }
 
@@ -267,46 +348,61 @@ static void UiDrawQrCode(const char *payload)
 
 static void UiRender(void)
 {
-  Displ_CLS(BLUE);
+  Displ_CLS(UI_BACKGROUND);
   if (ui_screen == UI_HOME) {
-    Displ_CString(20, 10, 399, 46, "STORMHACKS", Font16, 1U, YELLOW, BLUE);
+    static const char *const sensor_labels[SENSOR_COUNT] = {
+      "CENTRE", "WINDOW", "HEATER", "DOOR", "FAR WALL"
+    };
+    static const uint16_t sensor_accents[SENSOR_COUNT] = {
+      CYAN, D_BLUE, D_RED, D_GREEN, D_YELLOW
+    };
+    Displ_CString(14, 7, 205, 45, "ROOM SENTINEL",
+                  Font16, 1U, WHITE, UI_BACKGROUND);
+    Displ_CString(210, 7, 408, 45, "LIVE MONITOR",
+                  Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawGear();
     (void)memset(displayed_temperature_text, 0,
                  sizeof(displayed_temperature_text));
     for (uint8_t i = 0U; i < SENSOR_COUNT; i++) {
+      UiDrawSensorCard(i, sensor_labels[i], sensor_accents[i]);
       DisplayTemperature(i);
     }
+    Displ_fillRoundRect(246, 210, 222, 66, 8, UI_PANEL);
+    Displ_drawRoundRect(246, 210, 222, 66, 8, UI_PANEL_BORDER);
+    Displ_FillArea(254, 220, 5, 46, UI_PRIMARY);
+    Displ_CString(264, 218, 334, 266, "WI-FI",
+                  Font16, 1U, UI_MUTED, UI_PANEL);
     DisplayWifiStatus();
   } else if (ui_screen == UI_SETTINGS) {
-    Displ_CString(20, 10, 459, 48, "SETTINGS", Font16, 1U, YELLOW, BLUE);
+    Displ_CString(20, 10, 459, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", DDD_WHITE);
     UiDrawButton(40, 120, 400, 50, "ACCOUNT LOGIN", DDD_WHITE);
     UiDrawButton(40, 180, 400, 50, "FACTORY RESET", D_RED);
     UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
   } else if (ui_screen == UI_WIFI_SETUP) {
-    Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, YELLOW, BLUE);
+    Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawQrCode(wifi_qr_payload);
     UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
     if (strncmp(wifi_qr_payload, "http://", 7U) == 0 ||
         strncmp(wifi_qr_payload, "https://", 8U) == 0) {
       Displ_CString(155, 270, 465, 310, "2. Scan to open setup",
-                    Font16, 1U, WHITE, BLUE);
+                    Font16, 1U, WHITE, UI_BACKGROUND);
     } else {
       Displ_CString(155, 270, 465, 310, "1. Scan to connect",
-                    Font16, 1U, WHITE, BLUE);
+                    Font16, 1U, WHITE, UI_BACKGROUND);
     }
   } else if (ui_screen == UI_ACCOUNT_LOGIN) {
-    Displ_CString(10, 8, 185, 45, "ACCOUNT LOGIN", Font16, 1U, YELLOW, BLUE);
+    Displ_CString(10, 8, 185, 45, "ACCOUNT LOGIN", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     Displ_CString(190, 8, 470, 45, device_serial,
-                  Font16, 1U, WHITE, BLUE);
+                  Font16, 1U, WHITE, UI_BACKGROUND);
     UiDrawQrCode(login_qr_payload);
     UiDrawButton(15, 265, 130, 45, "< BACK", DDD_WHITE);
     Displ_CString(150, 270, 470, 310, login_status_text,
-                  Font16, 1U, WHITE, BLUE);
+                  Font16, 1U, WHITE, UI_BACKGROUND);
   } else {
-    Displ_CString(20, 30, 459, 70, "FACTORY RESET?", Font16, 1U, YELLOW, BLUE);
+    Displ_CString(20, 30, 459, 70, "FACTORY RESET?", Font16, 1U, YELLOW, UI_BACKGROUND);
     Displ_CString(30, 90, 449, 130, "Wi-Fi settings will be erased.",
-                  Font16, 1U, WHITE, BLUE);
+                  Font16, 1U, WHITE, UI_BACKGROUND);
     UiDrawButton(40, 175, 180, 65, "CANCEL", DDD_WHITE);
     UiDrawButton(260, 175, 180, 65, "RESET", D_RED);
   }
@@ -1007,6 +1103,8 @@ void StartDefaultTask(void *argument)
         DisplayTemperature(i);
       }
     }
+
+    Esp32SendTelemetry();
 
     if (displayed_wifi_sequence != wifi_status_sequence)
     {

@@ -60,6 +60,19 @@ Allowed reasons are `expired`, `rejected`, `already_linked`, and
 `server_error`. The ESP32 stores `device_token`; the account password must
 never be sent to either microcontroller.
 
+## Sensor telemetry
+
+After device authentication, ESP32 forwards the newest STM32 measurement:
+
+```json
+{"id":"1234-5678-9012-3456","type":"telemetry","sequence":42,"uptime_ms":38500,"Centre":22.4,"Window":21.8,"Heater":29.1,"Door":22.0,"Far wall":22.3}
+```
+
+Disconnected or faulty sensors are `null`. The server assigns the
+authoritative UTC timestamp at receipt. It can use `sequence` to detect gaps
+and `uptime_ms` to establish ordering within one device boot. No device RTC is
+required for the live pipeline.
+
 ## Production requirement
 
 The development TCP connection is restricted to the local trusted network.

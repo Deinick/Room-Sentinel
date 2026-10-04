@@ -55,7 +55,7 @@ static void uart_status_task(void *argument)
 
 static void uart_command_task(void *argument)
 {
-    char line[64];
+    char line[320];
     size_t length = 0;
     uint8_t byte;
     (void)argument;
@@ -74,6 +74,8 @@ static void uart_command_task(void *argument)
                 wifi_provisioning_factory_reset();
             } else if (strcmp(line, "START_LOGIN") == 0) {
                 server_link_request_pairing();
+            } else if (strstr(line, "\"type\":\"telemetry\"") != NULL) {
+                server_link_send_telemetry(line);
             }
             length = 0;
         } else if (byte != '\r') {

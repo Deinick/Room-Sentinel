@@ -10,6 +10,7 @@
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "lwip/netdb.h"
 #include "lwip/sockets.h"
 #include "nvs.h"
@@ -27,6 +28,10 @@ static char device_serial[20];
 static char device_secret[33];
 static char device_token[193];
 static volatile bool pairing_requested;
+typedef struct {
+    char json[320];
+} telemetry_message_t;
+static QueueHandle_t telemetry_queue;
 
 static esp_err_t load_or_create_identity(void)
 {
@@ -182,6 +187,16 @@ static void server_task(void *argument)
                 uart_link_send_pairing_state("requesting", "", "");
             }
 
+            telemetry_message_t telemetry;
+            if (xQueueReceive(telemetry_queue, &telemetry, 0) == pdTRUE) {
+                char outbound[416];
+                const char *body = telemetry.json;
+                if (*body == '{') body++;
+                snprintf(outbound, sizeof(outbound),
+                         "{\"id\":\"%s\",%s", device_serial, body);
+                if (!send_line(socket_fd, outbound)) break;
+            }
+
             struct timeval timeout = {.tv_sec = 0, .tv_usec = 200000};
             fd_set read_set;
             FD_ZERO(&read_set);
@@ -212,6 +227,8 @@ static void server_task(void *argument)
 esp_err_t server_link_init(void)
 {
     ESP_RETURN_ON_ERROR(load_or_create_identity(), TAG, "device identity");
+    telemetry_queue = xQueueCreate(1, sizeof(telemetry_message_t));
+    if (telemetry_queue == NULL) return ESP_ERR_NO_MEM;
     return xTaskCreate(server_task, "server_link", 6144, NULL, 5, NULL) == pdPASS
                ? ESP_OK : ESP_ERR_NO_MEM;
 }
@@ -230,5 +247,13 @@ void server_link_clear_account(void)
         nvs_close(handle);
     }
     device_token[0] = '\0';
+}
+
+void server_link_send_telemetry(const char *message)
+{
+    if (telemetry_queue == NULL || message == NULL) return;
+    telemetry_message_t telemetry = {0};
+    strlcpy(telemetry.json, message, sizeof(telemetry.json));
+    xQueueOverwrite(telemetry_queue, &telemetry);
 }
 

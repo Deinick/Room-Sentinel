@@ -31,3 +31,9 @@
 .door-fixture{left:-3px;width:7px;height:20%;background:transparent}
 .door-fixture:before{left:5px;width:13cqw;height:13cqw;bottom:0}
 .door-fixture:after{left:5px;width:13cqw;height:2px;bottom:0}
+
+/* Sidebar account actions stay at the bottom, including in collapsed layouts. */
+.sidebar-bottom .logout-button{margin-left:auto;border:1px solid #d3deef;background:#fff;color:#405875;font-family:var(--mono);font-size:9px;padding:7px 10px}
+.sidebar-bottom .logout-button:hover{background:#edf4ff;border-color:#9db8de;color:var(--blue)}
+.topbar-right .avatar,.topbar-right .topbar-signout{display:none}
+@media(max-width:1000px){.sidebar-bottom{display:flex;flex-direction:column;justify-content:center;gap:8px;padding-top:14px}.sidebar-bottom>div{display:none}.sidebar-bottom .avatar{width:30px;height:30px}.sidebar-bottom .logout-button{width:30px;height:28px;padding:0;font-size:0;margin:0;display:grid;place-items:center}.sidebar-bottom .logout-button:after{content:'↗';font-size:15px}}

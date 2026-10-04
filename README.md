@@ -16,7 +16,7 @@ The overview shows one room with Centre, Window, Heater, Door, and Far wall sens
 
 The heatmap uses inverse distance weighting of all five readings, with distances adjusted for the room's physical dimensions. Colors use a fixed 15–35°C scale; temperatures outside that scale use the endpoint colors. This is an illustrative interpolation, not a physical heat-transfer model. The ambient summary averages Centre, Door, and Far wall. Insights use temperature differences; the 20-minute outlook extrapolates the recent centre trend.
 
-Demo mode starts with synthetic 30-minute history and updates every three seconds. Settings lets you switch to a REST endpoint returning the original flat sensor package below. ISO 8601 timestamps are also accepted. REST mode starts a new in-memory history and polls every three seconds; it does not yet fetch stored history from a backend. Requests time out after eight seconds. Failed requests retain the previous values, and readings older than 15 seconds are marked stale. The backend needs to allow the frontend origin through CORS. No backend or real ML model is included.
+Demo mode starts with synthetic 30-minute history sampled every second and updates every second. Settings lets you switch to a REST endpoint returning the original flat sensor package below. ISO 8601 timestamps are also accepted. REST mode starts a new in-memory history and polls every second; it does not yet fetch stored history from a backend. Requests time out after eight seconds. Failed requests retain the previous values, and readings older than 5 seconds are marked stale. The backend needs to allow the frontend origin through CORS. No backend or real ML model is included.
 
 ```json
 {

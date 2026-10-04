@@ -11,11 +11,59 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     arrow: <path d="M5 16 16 5M6 5h10v10"/>,
     check: <path d="m5 12 4 4 10-10"/>,
     room: <><path d="M3 10 12 3l9 7v11H3zM9 21v-8h6v8"/></>,
+    mail: <><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></>,
+    lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></>,
     pause: <><path d="M8 5v14M16 5v14"/></>,
     play: <path d="m8 5 11 7-11 7Z"/>,
     reset: <><path d="M4 10a8 8 0 1 1 1 8M4 4v6h6"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.grid}</svg>;
+}
+function Login({ onLogin }: { onLogin: (email: string) => void }) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (mode === 'register' && !name.trim()) { setError('Enter your name.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) { setError('Enter a valid email address.'); return; }
+    if (password.length < 8) { setError('Use at least 8 characters for the password.'); return; }
+    if (mode === 'register' && password !== confirmPassword) { setError('The passwords do not match.'); return; }
+    setError('');
+    if (mode === 'register') {
+      setEmail(email.trim().toLowerCase());
+      setPassword('');
+      setConfirmPassword('');
+      setMode('login');
+      setNotice('Registration complete for this demo. Sign in with the email and password you just entered.');
+      return;
+    }
+    setNotice('');
+    onLogin(email.trim().toLowerCase());
+  }
+  return <main className="login-page"><div className="login-card">
+    <a className="brand login-brand" href="#" onClick={e => e.preventDefault()}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
+    <div className="login-heading"><span className="login-eyebrow">YOUR ROOM, AT A GLANCE</span><h1>{mode === 'login' ? 'Welcome' : 'Create your account'}</h1><p>{mode === 'login' ? 'Sign in to continue to your room dashboard.' : 'Create an account to explore your room dashboard.'}</p></div>
+    <form onSubmit={submit} noValidate>
+      {mode === 'register' && <><label className="login-label" htmlFor="login-name">Your name</label><div className="login-input-wrap"><input id="login-name" type="text" autoComplete="name" placeholder="Your name" value={name} onChange={e => { setName(e.target.value); setError(''); }} required/></div></>}
+      <label className="login-label" htmlFor="login-email">Email address</label>
+      <div className="login-input-wrap"><Icon name="mail" size={17}/><input id="login-email" type="email" autoComplete="email" placeholder="you@example.com" value={email} onChange={e => { setEmail(e.target.value); setError(''); }} required/></div>
+      <label className="login-label" htmlFor="login-password">Password</label>
+      <div className="login-input-wrap"><Icon name="lock" size={17}/><input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="At least 8 characters" value={password} onChange={e => { setPassword(e.target.value); setError(''); }} required minLength={8}/><button type="button" className="password-toggle" onClick={() => setShowPassword(s => !s)} aria-label={showPassword ? 'Hide password' : 'Show password'}>{showPassword ? 'Hide' : 'Show'}</button></div>
+      {mode === 'register' && <><label className="login-label" htmlFor="login-confirm-password">Confirm password</label><div className="login-input-wrap"><Icon name="lock" size={17}/><input id="login-confirm-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Enter your password again" value={confirmPassword} onChange={e => { setConfirmPassword(e.target.value); setError(''); }} required/></div></>}
+      {notice && <p className="login-notice" role="status">{notice}</p>}
+      {error && <p className="login-error" role="alert">{error}</p>}
+      <button className="login-submit" type="submit">{mode === 'login' ? 'Sign in' : 'Create account'} <span>→</span></button>
+    </form>
+    <div className="login-switch">{mode === 'login' ? 'New to Room Sentinel?' : 'Already have an account?'} <button type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div>
+    <div className="login-demo"><strong>{mode === 'login' ? 'Prototype sign in' : 'Prototype registration'}</strong><span>{mode === 'login' ? 'Use any valid email and a password with at least 8 characters. Login is not checked against registered accounts yet.' : 'A valid email and an 8 character password are required. Confirm your password to continue.'} This demo does not contact a server or save account details.</span></div>
+    <div className="login-footer"><span className="status-dot"/>Secure room monitoring <span>·</span> Room Sentinel</div>
+  </div></main>;
 }
 type Config = { name: string; width: number; length: number; target: number; layout: Layout };
 const base: Config = { name: 'Living room', width: 6, length: 4, target: 21, layout: defaults };
@@ -53,10 +101,20 @@ function History({ history, minutes }: { history: Packet[]; minutes: number }) {
   </svg>;
 }
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [accountEmail, setAccountEmail] = useState('');
   const [config, setConfig] = useState(savedConfig);
   const [history, setHistory] = useState<Packet[]>(seedHistory);
   const [packet, setPacket] = useState<Packet>(() => ({ ...initial, timestamp: new Date().toISOString() }));
   const [page, setPage] = useState('Overview');
+  const [jumpToSensors, setJumpToSensors] = useState(false);
+  const readingsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (page !== 'Overview' || !jumpToSensors || !readingsRef.current) return;
+    readingsRef.current.focus({ preventScroll: true });
+    readingsRef.current.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
+    setJumpToSensors(false);
+  }, [page, jumpToSensors]);
   const [editing, setEditing] = useState(false), [selected, setSelected] = useState<Sensor>('Centre');
   const [gradient, setGradient] = useState(true), [paused, setPaused] = useState(false), [minutes, setMinutes] = useState(30);
   const [source, setSource] = useState<'demo' | 'rest'>('demo'), [url, setUrl] = useState('http://localhost:8000/api/v1/readings/latest');
@@ -66,7 +124,7 @@ export default function App() {
   useEffect(() => { try { localStorage.setItem('sentinel-room', JSON.stringify(config)); } catch { /* Layout remains usable in memory. */ } }, [config]);
   useEffect(() => { const timer = setInterval(() => setClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   useEffect(() => {
-    if (paused) return;
+    if (paused || !isAuthenticated) return;
     let disposed = false; const controller = new AbortController(); let busy = false;
     function accept(p: Packet) { if (disposed) return; setPacket(p); setHistory(h => { const stamp = Date.parse(p.timestamp); const without = h.filter(item => Date.parse(item.timestamp) !== stamp); return [...without, p].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)).slice(-2000); }); }
     async function tick() {
@@ -81,7 +139,7 @@ export default function App() {
     }
     void tick(); const timer = setInterval(() => void tick(), 3000);
     return () => { disposed = true; controller.abort(); clearInterval(timer); };
-  }, [source, paused, url]);
+  }, [source, paused, url, isAuthenticated]);
   const age = Math.max(0, (clock - Date.parse(packet.timestamp)) / 1000);
   const stale = age > 15;
   const ambient = (packet.Centre + packet.Door + packet['Far wall']) / 3;
@@ -100,16 +158,17 @@ export default function App() {
     demoBase.current[key] = value; const p = { ...packet, [key]: value, timestamp: new Date().toISOString() }; setPacket(p); setHistory(h => [...h, p].slice(-2000));
   }
   function changeSource(value: 'demo' | 'rest') { setSource(value); setConnected(false); setError(''); setHistory([{ ...packet }]); }
+  if (!isAuthenticated) return <Login onLogin={email => { setAccountEmail(email); setIsAuthenticated(true); }}/>;
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setPage('Overview'); }}><span className="brand-mark"><Icon name="room" size={24}/></span><span>Room<span className="brand-light">Sentinel</span><small>THERMAL GUARD</small></span></a>
       <div className="workspace-label">YOUR WORKSPACE</div>
-      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Insights', 'bell'], ['Settings', 'settings']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => setPage(title)}><Icon name={icon}/>{title}{title === 'Insights' && warning && <span className="nav-count">1</span>}</button>)}</nav>
+      <nav>{[['Overview', 'grid'], ['Sensor readings', 'pulse'], ['Insights', 'bell'], ['Settings', 'settings']].map(([title, icon]) => <button key={title} className={page === title ? 'nav-item active' : 'nav-item'} onClick={() => { if (title === 'Sensor readings') { setPage('Overview'); setJumpToSensors(true); } else { setPage(title); } }}><Icon name={icon}/>{title}{title === 'Insights' && warning && <span className="nav-count">1</span>}</button>)}</nav>
       <div className="sidebar-room"><span className="tiny-label">CONNECTED ROOM</span><strong><span className="status-dot"/>{config.name}</strong><small>5 temperature sensors</small></div>
-      <div className="sidebar-bottom"><span className="avatar">RS</span><div><strong>Room Sentinel</strong><small>Prototype workspace</small></div><span className="ellipsis">···</span></div>
+      <div className="sidebar-bottom"><span className="avatar">RS</span><div><strong>Room Sentinel</strong><small title={accountEmail}>{accountEmail || 'Prototype workspace'}</small></div><button className="logout-button" onClick={() => setIsAuthenticated(false)} aria-label="Sign out" title="Sign out">↗</button></div>
     </aside>
     <div className="main-shell">
-      <header className="topbar"><div><span className="breadcrumb">Workspace</span><span className="slash">/</span><span>{page}</span></div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'rest' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'REST connected' : 'REST offline'}</span><span className="avatar small">RS</span></div></header>
+      <header className="topbar"><div><span className="breadcrumb">Workspace</span><span className="slash">/</span><span>{page}</span></div><div className="topbar-right"><span className="source-tag"><span className={`status-dot ${source === 'rest' && !connected ? 'muted' : ''}`}/>{source === 'demo' ? 'Demo mode' : connected ? 'REST connected' : 'REST offline'}</span><button className="topbar-signout" onClick={() => setIsAuthenticated(false)}>Sign out</button><span className="avatar small">RS</span></div></header>
       <main>
         <div className="page-heading"><div><div className="eyebrow">LIVE TELEMETRY · 3S INTERVAL</div><h1>{page === 'Overview' ? config.name : page}</h1><p>Five sensors. One view of your room.</p></div><button className="outline-button" onClick={() => { setPage('Overview'); setEditing(!editing); }}><Icon name="settings" size={17}/>{editing ? 'Finish editing' : 'Customize room'}</button></div>
         {(error || stale) && <div className="connection-warning" role="status">{error ? `API unavailable: ${error} Last received values are shown.` : `Readings are ${Math.floor(age)} seconds old.`}</div>}
@@ -127,12 +186,12 @@ export default function App() {
           </div><div className="dimension length-dimension">{config.length.toFixed(1)} m</div></div>
           <div className="map-footer"><label className="toggle-label"><input type="checkbox" checked={gradient} onChange={e => setGradient(e.target.checked)}/><span className="toggle"/>Temperature overlay</label><div className="color-legend"><span>15°</span><i/><span>35°</span></div></div><p className="map-note">{editing ? 'Drag a sensor to position it, or focus it and use arrow keys. Layout saves automatically.' : 'An estimated temperature field from five point readings. Select a sensor to explore.'}</p>
         </section><aside className="right-column">
-          {editing ? <section className="panel editor-panel"><div className="panel-title"><h2>Make it your room</h2><span className="badge">EDITING</span></div><label className="field">Room name<input value={config.name} maxLength={30} onChange={e => updateConfig({ name: e.target.value })}/></label><div className="two-fields"><label className="field">Width (m)<input type="number" min="2" max="12" step=".5" value={config.width} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ width: n }); }}/></label><label className="field">Length (m)<input type="number" min="2" max="12" step=".5" value={config.length} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ length: n }); }}/></label></div><label className="field">Comfort target · {config.target}°C<input type="range" min="16" max="28" step=".5" value={config.target} onChange={e => updateConfig({ target: Number(e.target.value) })}/></label><button className="outline-button full" onClick={() => updateConfig({ layout: defaults })}><Icon name="reset" size={16}/>Reset sensor positions</button></section> : <section className="panel comfort-panel"><div className="panel-title"><h2>Zonal Intelligence</h2><span className="live-dot"/></div><div className="comfort-gauge"><Icon name="room" size={27}/><strong>{ambient.toFixed(1)}<span>°C</span></strong><small>Ambient sensor average</small></div><div className="comfort-summary"><span className="status-dot"/>{Math.abs(ambient - config.target) <= 2 ? 'Your room feels comfortable' : ambient < config.target ? 'Room is below your target' : 'Room is above your target'}</div><div className="condition-row"><span>Comfort target</span><strong>{config.target.toFixed(1)}°C</strong></div><div className="condition-row"><span>Heater temperature</span><strong>{packet.Heater.toFixed(1)}°C</strong></div><div className="condition-row"><span>Window difference</span><strong className={warning ? 'amber' : ''}>{Math.abs(gap).toFixed(1)}°C {gap >= 0 ? 'cooler' : 'warmer'}</strong></div></section>}
+          {editing ? <section className="panel editor-panel"><div className="panel-title"><h2>Make it your room</h2><span className="badge">EDITING</span></div><label className="field">Room name<input value={config.name} maxLength={30} onChange={e => updateConfig({ name: e.target.value })}/></label><div className="two-fields"><label className="field">Width (m)<input type="number" min="2" max="12" step=".5" value={config.width} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ width: n }); }}/></label><label className="field">Length (m)<input type="number" min="2" max="12" step=".5" value={config.length} onChange={e => { const n = Number(e.target.value); if (n >= 2 && n <= 12) updateConfig({ length: n }); }}/></label></div><label className="field">Comfort target · {config.target}°C<input type="range" min="16" max="28" step=".5" value={config.target} onChange={e => updateConfig({ target: Number(e.target.value) })}/></label><button className="outline-button full" onClick={() => updateConfig({ layout: defaults })}><Icon name="reset" size={16}/>Reset sensor positions</button></section> : <section className="panel comfort-panel"><div className="panel-title"><h2>Zonal Intelligence</h2><span className="live-dot"/></div><div className="comfort-gauge"><Icon name="room" size={27}/><strong>{ambient.toFixed(1)}<span>°C</span></strong><small title="The arithmetic mean of Centre, Door, and Far wall. Window and Heater readings are excluded because they measure local cold and hot spots.">Ambient sensor average</small><small>Centre · Door · Far wall</small></div><div className="comfort-summary"><span className="status-dot"/>{Math.abs(ambient - config.target) <= 2 ? 'Your room feels comfortable' : ambient < config.target ? 'Room is below your target' : 'Room is above your target'}</div><div className="condition-row"><span>Comfort target</span><strong>{config.target.toFixed(1)}°C</strong></div><div className="condition-row"><span>Heater temperature</span><strong>{packet.Heater.toFixed(1)}°C</strong></div><div className="condition-row"><span>Window difference</span><strong className={warning ? 'amber' : ''}>{Math.abs(gap).toFixed(1)}°C {gap >= 0 ? 'cooler' : 'warmer'}</strong></div></section>}
           <section className="insight-card"><span className="insight-kicker"><Icon name="pulse" size={17}/>ROOM INSIGHT</span><h3>{warning ? 'A cooler spot by the window' : 'A balanced room'}</h3><p>{warning ? `The window sensor is ${gap.toFixed(1)}°C cooler than the centre. This may indicate heat loss around the window.` : 'The centre and window readings are close. Keep an eye on how they change over time.'}</p><button onClick={() => setPage('Insights')}>Explore insights <span>↗</span></button></section>
         </aside></div>}
         {page === 'Insights' && <section className="panel insights-page"><div className="panel-title"><h2>Thermal observations</h2><span className="badge">RULE BASED</span></div><h3>{warning ? 'Possible heat loss near the window' : 'Window temperature is close to the centre'}</h3><p>The centre is {packet.Centre.toFixed(1)}°C and the window is {packet.Window.toFixed(1)}°C. {warning ? 'Check the window seal and whether the window is open.' : 'No large window temperature difference is currently detected.'}</p><h3>Temperature outlook</h3><p>The centre trend is {(slope * 10).toFixed(2)}°C per 10 minutes. If that trend continues, the centre may reach {forecast.toFixed(1)}°C in 20 minutes.</p><p className="help">These observations use simple temperature comparisons and a linear trend. They are approximate and do not establish the cause of a change.</p></section>}
         <section className="panel history-panel"><div className="panel-title"><div><h2>Thermal Telemetry History</h2><p>Continuous temperature readings across room zones.</p></div><div className="segmented">{[5, 15, 30].map(n => <button key={n} className={minutes === n ? 'chosen' : ''} onClick={() => setMinutes(n)}>{n} min</button>)}</div></div><div className="chart-legend">{keys.map(k => <span key={k}><i style={{ background: colors[k] }}/>{k === 'Centre' ? 'Room centre' : k}</span>)}</div><History history={history} minutes={minutes}/></section>
-        <section className="sensor-section"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Latest REST package'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
+        <section className="sensor-section" id="sensor-readings" ref={readingsRef} tabIndex={-1} aria-label="Sensor readings"><div className="section-title"><h2>Sensor readings <span className="subtle">/ 05</span></h2><span className="subtle">{source === 'demo' ? 'Simulated measurements' : 'Latest REST package'}</span></div><div className="sensor-cards">{keys.map((k, i) => <button key={k} className={`sensor-card ${selected === k ? 'focused' : ''}`} onClick={() => setSelected(k)}><div className="sensor-card-top"><span className="sensor-number">0{i + 1}</span><span className={`status-dot ${stale ? 'muted' : ''}`}/></div><span>{k === 'Centre' ? 'Room centre' : k}</span><strong>{packet[k].toFixed(1)}<small>°C</small></strong><div className="sensor-card-bottom"><i style={{ background: colors[k] }}/>{stale ? 'Stale reading' : 'Reporting normally'}</div></button>)}</div></section>
         <section className="demo-strip"><div><strong>{selected === 'Centre' ? 'Room centre' : selected} sensor</strong><span>{source === 'demo' ? 'Adjust a demo reading to explore the temperature map.' : `Measured at ${new Date(packet.timestamp).toLocaleTimeString()}`}</span></div>{source === 'demo' && <><input aria-label={`${selected} demo temperature`} type="range" min="5" max="45" step=".1" value={packet[selected]} onChange={e => changeTemperature(selected, Number(e.target.value))}/><strong>{packet[selected].toFixed(1)}°C</strong></>}<button className="outline-button" onClick={() => setPaused(!paused)}><Icon name={paused ? 'play' : 'pause'} size={15}/>{paused ? 'Resume' : 'Pause'}</button></section>
         </>}
         <footer><span><span className={`status-dot ${stale ? 'muted' : ''}`}/>{paused ? 'Updates paused' : source === 'demo' ? 'Demo data · updates every 3 seconds' : 'REST data · polling every 3 seconds'}</span><span>Room Sentinel <span className="separator">·</span> A little more aware of your space.</span></footer>

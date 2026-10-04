@@ -217,9 +217,11 @@ function openPanel(name) {
   if (prev) { gsap.killTweensOf(prev); prev.hidden = true; }
   openName = name;
   const el = $(`panel-${name}`);
+  gsap.killTweensOf(el); // a closing tween would hide it again on complete
   el.hidden = false;
   gsap.fromTo(el, { opacity: 0, x: -28, scale: 0.975, filter: 'blur(6px)' }, { opacity: 1, x: 0, scale: 1, filter: 'blur(0px)', duration: 0.65, ease: 'power3.out' });
-  gsap.from(el.querySelectorAll('.sensor-card, .issue-card, .chart-card, .toggle, .field, .input, .segmented, .primary'), { opacity: 0, y: 10, duration: 0.5, ease: 'power3.out', stagger: 0.035, delay: 0.08 });
+  // fromTo, not from: reopening mid-animation would otherwise take the half-faded state as the end.
+  gsap.fromTo(el.querySelectorAll('.sensor-card, .issue-card, .chart-card, .toggle, .field, .input, .segmented, .primary'), { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.5, ease: 'power3.out', stagger: 0.035, delay: 0.08, clearProps: 'opacity,transform' });
   document.querySelectorAll('.rail-btn').forEach(b => b.classList.toggle('active', b.dataset.panel === name));
   if (name === 'history') loadHistory();
 }
@@ -868,6 +870,8 @@ function renderDevices() {
   }
   const devices = account.devices || [];
   $('devices-sub').textContent = devices.length ? `Paired to ${account.email}.` : 'No device on your account yet. Add one below.';
+  // With devices, the list leads and the setup guide folds away.
+  $('add-device').open = !devices.length;
   const value = v => (v == null ? '' : v);
   list.innerHTML = devices.map(d => `
     <div class="device-card ${source.kind === 'backend' && source.deviceId === d.device_id ? 'current' : ''}" data-id="${escapeHtml(d.device_id)}">

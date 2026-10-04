@@ -32,7 +32,6 @@
 
   <!-- Top left: identity -->
   <header class="brand glass" data-reveal>
-    <div class="brand-mark" aria-hidden="true"><span></span></div>
     <div>
       <div class="brand-name">Room Sentinel</div>
       <div class="brand-sub"><span id="device-name">demo-101</span> · <span id="mode-chip" class="chip">Preview</span></div>
@@ -42,6 +41,7 @@
   <!-- Top right: main metrics -->
   <section class="hud" aria-label="Main metrics" data-reveal>
     <div class="hud-main glass">
+      <label class="hud-device" id="device-field" hidden><span class="hud-label">Room</span><select id="device-select" aria-label="Room"></select></label>
       <div class="hud-label">Room temperature</div>
       <div class="hud-temp"><span id="hud-temp">--.-</span><span class="hud-unit">°C</span></div>
       <div class="hud-row">
@@ -136,15 +136,15 @@
     <div class="drawer-head"><h2>Devices</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
     <p class="drawer-sub" id="devices-sub">Your paired Room Sentinels.</p>
     <div id="device-cards" class="device-cards"></div>
-    <div class="add-device">
-      <div class="form-title">Add a device</div>
+    <details class="add-device" id="add-device" open>
+      <summary class="form-title">Add a device</summary>
       <ol class="steps small">
         <li><b>On the device</b>, open Settings → Account Login. A QR code appears.</li>
         <li><b>Scan it</b> with your phone, or open the link it shows.</li>
         <li><b>Sign in</b> and confirm the serial number from the device's label.</li>
       </ol>
       <p class="drawer-note">The code on the device is valid for 10 minutes.</p>
-    </div>
+    </details>
   </aside>
 
   <aside class="drawer glass" id="panel-account" aria-label="Account" hidden>
@@ -158,7 +158,6 @@
         <span class="avatar" id="account-avatar">RS</span>
         <div><div class="account-email" id="account-email"></div><div class="account-server" id="account-server"></div></div>
       </div>
-      <label class="input" id="device-field" hidden><span>Room</span><select id="device-select"></select></label>
       <form class="account-form" id="password-form" novalidate>
         <div class="form-title">Change password</div>
         <label class="input"><span>Current password</span><input type="password" id="pw-current" autocomplete="current-password" maxlength="32"></label>
@@ -214,7 +213,7 @@
   <!-- Signed in, but no device paired yet -->
   <section id="onboard" class="auth gate" aria-label="Add your first device" hidden>
     <div class="auth-card glass">
-      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="onboard-email"></div></div></div>
+      <div class="auth-brand"><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="onboard-email"></div></div></div>
       <div class="auth-eyebrow">Almost there</div>
       <h1>Add your first device</h1>
       <p class="auth-sub">Your account has no Room Sentinel yet. Pairing takes about a minute:</p>
@@ -232,7 +231,7 @@
   <!-- Opened from the device's QR code: …/room-view/#pair/CODE -->
   <section id="pairing" class="auth gate" aria-label="Pair a device" hidden>
     <div class="auth-card glass">
-      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="pair-email"></div></div></div>
+      <div class="auth-brand"><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="pair-email"></div></div></div>
       <div class="auth-eyebrow">New device</div>
       <h1 id="pair-title">Pair this device?</h1>
       <div class="serial-card">
@@ -252,7 +251,7 @@
   <!-- Sign in / create account -->
   <section id="auth" class="auth gate" aria-label="Sign in">
     <div class="auth-card glass">
-      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub">Thermal guard for real rooms</div></div></div>
+      <div class="auth-brand"><div><div class="brand-name">Room Sentinel</div><div class="brand-sub">Thermal guard for real rooms</div></div></div>
       <div class="auth-eyebrow">Your room, at a glance</div>
       <h1 id="auth-title">Welcome back</h1>
       <p class="auth-sub" id="auth-sub">Sign in to see your room live.</p>

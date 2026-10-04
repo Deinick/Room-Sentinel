@@ -85,7 +85,7 @@ button { cursor: pointer; }
   background: radial-gradient(80% 80% at 50% 40%, #141b25, #06080b);
   transition: opacity .9s var(--ease), visibility .9s;
 }
-.loader.done { opacity: 0; visibility: hidden; }
+.loader.done { opacity: 0; visibility: hidden; pointer-events: none; }
 .loader-mark { font-weight: 300; letter-spacing: .5em; font-size: 13px; color: var(--text-2); padding-left: .5em; }
 .loader-bar { width: 220px; height: 2px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
 .loader-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6fb8ff, #e8f3ff); transition: width .3s var(--ease); }
@@ -98,8 +98,6 @@ button { cursor: pointer; }
   padding: 12px 18px 12px 14px;
   border-radius: 12px;
 }
-.brand-mark { width: 30px; height: 30px; border-radius: 6px; background: linear-gradient(140deg, #9fd2ff, #3a6ea8); display: grid; place-items: center; box-shadow: inset 0 1px 0 rgba(255,255,255,.5); }
-.brand-mark span { width: 10px; height: 10px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px #fff; animation: pulse 2.6s ease-in-out infinite; }
 .brand-name { font-weight: 500; font-size: 14px; letter-spacing: .02em; }
 .brand-sub { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
 /* the data mode: just a coloured word */
@@ -113,6 +111,8 @@ button { cursor: pointer; }
 /* ---------------------------------------------------------------- HUD */
 .hud { position: fixed; top: 20px; right: 20px; z-index: 10; width: 300px; display: grid; gap: 10px; }
 .hud-main { padding: 18px 20px 16px; }
+.hud-device { display: grid; gap: 6px; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.hud-device select { padding: 7px 10px; font-size: 13px; }
 .hud-label, .mini-label, .dock-label { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); font-weight: 500; }
 .hud-temp { display: flex; align-items: flex-start; gap: 4px; margin: 4px 0 6px; font-weight: 300; font-size: 64px; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .hud-unit { font-size: 22px; font-weight: 300; margin-top: 8px; color: var(--text-2); }
@@ -349,6 +349,7 @@ body.ui-hidden [data-reveal], body.ui-hidden .credit { opacity: 0; translate: 0 
 .device-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .add-device { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
 .add-device .steps { margin-top: 12px; }
+.add-device summary { cursor: pointer; }
 
 /* ---------------------------------------------------------------- account panel */
 .account-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin-top: 6px; border-radius: var(--radius-s); background: rgba(255,255,255,.06); border: 1px solid var(--line); }

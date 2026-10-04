@@ -7,7 +7,7 @@
     python -m src.sentinel.run --api                            # also serve the team API (/latest, /issues, auth)
 
 Database settings come from PGHOST, PGUSER, PGPASSWORD, ... in the environment.
-Dashboards and alerts live in Grafana (docker compose up grafana).
+Dashboards and alerts live in Grafana Cloud (python3 grafana/push.py).
 """
 
 import argparse
@@ -28,6 +28,7 @@ from src.sentinel.issues import IssueTracker
 from src.sentinel.live import LIVE
 from src.sentinel.notify.base import Channel
 from src.sentinel.notify.console import ConsoleChannel
+from src.sentinel.notify.expo import ExpoPushChannel
 from src.sentinel.pipeline import Pipeline
 from src.sentinel.storage import MemoryStorage, PostgresStorage
 
@@ -45,13 +46,14 @@ def build_analyzers() -> list[Analyzer]:
     ]
 
 
-def build_channels() -> list[Channel]:
-    return [ConsoleChannel()]
+def build_channels(use_db=True) -> list[Channel]:
+    # Push needs the database to find the device owner's phones.
+    return [ConsoleChannel(),ExpoPushChannel()] if use_db else [ConsoleChannel()]
 
 
 def build_pipeline(use_db=True) -> Pipeline:
     storage=PostgresStorage() if use_db else MemoryStorage()
-    return Pipeline(build_analyzers(),IssueTracker(advise),storage,build_channels(),live=LIVE)
+    return Pipeline(build_analyzers(),IssueTracker(advise),storage,build_channels(use_db),live=LIVE)
 
 
 def tick_forever(pipeline: Pipeline):

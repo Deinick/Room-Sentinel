@@ -14,6 +14,7 @@ from starlette.concurrency import run_in_threadpool
 from src.auth.routes import router as auth_router
 from src.database import engine
 from src.device.routes import router as device_router
+from src.push.routes import router as push_router
 from src.sentinel.api import router as sentinel_router
 from src.sentinel.demo import DEMO_DEVICES, DemoRunner
 from src.sentinel.run import TICK_SECONDS, build_pipeline
@@ -80,6 +81,7 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 app.include_router(device_router)
+app.include_router(push_router)
 app.include_router(sentinel_router)
 
 

@@ -12,13 +12,17 @@ class Channel:
         raise NotImplementedError
 
 
-def describe(event: IssueEvent) -> tuple[str,str]:
-    """(title, body) in plain words, used by every channel so messages look the same everywhere."""
+def describe(event: IssueEvent, device_name: str | None=None) -> tuple[str,str]:
+    """(title, body) in plain words, used by every channel so messages look the same everywhere.
+
+    device_name is the owner's name for the device; the serial is used when there is none.
+    """
     f=event.finding
+    device=device_name or f.device_id
     if event.type==EventType.RESOLVED:
         minutes=(event.time-event.opened_at).total_seconds()/60
-        return f"Resolved: {f.device_id} {f.kind}", f"Back to normal after {minutes:.0f} min. Was: {f.message}"
+        return f"Resolved: {device} {f.kind}", f"Back to normal after {minutes:.0f} min. Was: {f.message}"
     prefix={EventType.OPENED:"",EventType.ESCALATED:"Worse: ",EventType.REMINDER:"Still: "}[event.type]
-    title=f"{f.severity.name} {f.device_id}: {f.kind}"
+    title=f"{f.severity.name} {device}: {f.kind}"
     lines=[prefix+f.message]+[f"-> {r.action}" for r in event.recommendations]
     return title, "\n".join(lines)

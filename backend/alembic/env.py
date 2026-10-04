@@ -6,6 +6,7 @@ from src.database import Base, database_url
 # Import model modules here so autogenerate sees their tables.
 import src.auth.models  # noqa: F401
 import src.device.models  # noqa: F401
+import src.push.models  # noqa: F401
 import src.sentinel.device_readings.models  # noqa: F401
 
 url = database_url()

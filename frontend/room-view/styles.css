@@ -85,7 +85,7 @@ button { cursor: pointer; }
   background: radial-gradient(80% 80% at 50% 40%, #141b25, #06080b);
   transition: opacity .9s var(--ease), visibility .9s;
 }
-.loader.done { opacity: 0; visibility: hidden; }
+.loader.done { opacity: 0; visibility: hidden; pointer-events: none; }
 .loader-mark { font-weight: 300; letter-spacing: .5em; font-size: 13px; color: var(--text-2); padding-left: .5em; }
 .loader-bar { width: 220px; height: 2px; background: rgba(255,255,255,.1); border-radius: 2px; overflow: hidden; }
 .loader-bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #6fb8ff, #e8f3ff); transition: width .3s var(--ease); }

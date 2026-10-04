@@ -9,11 +9,13 @@ from src.auth.models import User
 from src.database import get_repository
 from src.device.services import DeviceService
 from src.sentinel.demo import DEMO_DEVICES
+from src.sentinel.demo_routes import router as demo_router
 from src.sentinel.device_readings.routes import router as device_readings_router
 from src.sentinel.live import LIVE
 
 router=APIRouter(tags=["sentinel"])
 router.include_router(device_readings_router)
+router.include_router(demo_router)
 
 
 async def _my_device_ids(

@@ -47,6 +47,29 @@ def test_demo_alerts_go_out_but_nothing_is_stored():
     assert "device_silence" not in [a.name for a in demo.pipeline.analyzers]
 
 
+def test_reset_clears_the_demo_and_its_open_issues():
+    demo,recorder=runner()
+    demo.change({"unplug":"Door"})
+    demo.set_speed(60)
+    demo.advance_real(1.0)
+    assert [i["kind"] for i in demo.live.issues()]==["SENSOR_FAULT"]
+    demo.reset()
+    assert demo.live.issues()==[] and demo.speed==1.0
+    assert demo.state()["probes"]["Door"]["unplugged"] is False
+    assert demo.live.latest()["demo-101"]["sensors"]["Door"]["status"]=="ok"
+
+
+def test_scenario_starts_from_now():
+    demo,_=runner()
+    demo.start_scenario("window_open")  # window opens 10 minutes from now
+    demo.set_speed(60)
+    for _ in range(9):
+        demo.advance_real(1.0)
+    assert demo.state()["controls"]["window"]=="closed"
+    demo.advance_real(2.0)
+    assert demo.state()["controls"]["window"]=="open"
+
+
 def test_state_shows_what_really_happens():
     demo,_=runner()
     demo.device.apply({"window":"open","outside_c":-5.0})

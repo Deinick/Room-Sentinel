@@ -79,6 +79,25 @@ class DemoRunner:
         with self._lock:
             self.paused=paused
 
+    def change(self, change: dict) -> None:
+        """Change the room or a probe now, e.g. {"window": "open"} or {"unplug": "Door"}."""
+        with self._lock:
+            self.device.apply(change)
+
+    def start_scenario(self, name: str) -> None:
+        with self._lock:
+            self.device.load_scenario(name)
+
+    def reset(self) -> None:
+        """Back to a settled room at 1x: new simulation, new analyzers, open demo issues cleared."""
+        with self._lock:
+            self.live.forget(self.device_id)
+            self.speed=1.0
+            self.paused=False
+            self._carry=0.0
+            self._build()
+            self.warm_up()
+
     def _run(self, seconds: int) -> int:
         for time,frame in self.device.advance(seconds):
             self.pipeline.process(to_reading(frame,time))

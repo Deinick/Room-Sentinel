@@ -25,6 +25,12 @@ class LiveView:
         with self._lock:
             self._demo.add(device_id)
 
+    def forget(self, device_id: str) -> None:
+        """Drop a device's newest reading and open issues (used when the demo is reset)."""
+        with self._lock:
+            self._latest.pop(device_id,None)
+            self._open={k:e for k,e in self._open.items() if e.finding.device_id!=device_id}
+
     def on_reading(self, reading: Reading) -> None:
         with self._lock:
             self._latest[reading.device_id]=(reading,time.monotonic())

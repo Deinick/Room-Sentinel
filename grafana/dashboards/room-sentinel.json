@@ -54,7 +54,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT time_bucket($__interval, time) AS time, sensor, avg(temp_c) AS temp_c\nFROM readings\nWHERE $__timeFilter(time) AND device_id = '$device' AND temp_c IS NOT NULL\nGROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, sensor, avg(temp_c) AS temp_c\nFROM readings\nWHERE $__timeFilter(time) AND device_id = '$device' AND temp_c IS NOT NULL\nGROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -88,7 +88,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT time_bucket($__interval, time) AS time, name, avg(value) AS value\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name IN ('room_c', 'rate_c_per_min', 'expected_rate_c_per_min')\nGROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, name, avg(value) AS value\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name IN ('room_c', 'rate_c_per_min', 'expected_rate_c_per_min')\nGROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -156,7 +156,7 @@
           "format": "time_series",
           "rawQuery": true,
           "editorMode": "code",
-          "rawSql": "SELECT time_bucket($__interval, time) AS time, avg(value) AS sensors_ok\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name = 'sensors_ok'\nGROUP BY 1 ORDER BY 1"
+          "rawSql": "SELECT time_bucket(make_interval(secs => $__interval_ms / 1000.0), time) AS time, avg(value) AS sensors_ok\nFROM metrics\nWHERE $__timeFilter(time) AND device_id = '$device' AND name = 'sensors_ok'\nGROUP BY 1 ORDER BY 1"
         }
       ]
     },

@@ -29,6 +29,18 @@ class MemoryStorage(Storage):
     def save_event(self, event): self.events.append(event)
 
 
+INSERT_EVENT=("INSERT INTO issue_events (time, device_id, issue_key, kind, sensor, severity, event, message,"
+              " evidence, recommendations, opened_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+
+
+def event_row(event):
+    f=event.finding
+    recommendations=[{"action":r.action,"severity":r.severity.name,"command":r.command}
+                     for r in event.recommendations]
+    return (event.time,f.device_id,f.key,f.kind,f.sensor,f.severity.name,event.type.value,f.message,
+            Jsonb(f.evidence),Jsonb(recommendations),event.opened_at)
+
+
 class PostgresStorage(Storage):
     """TimescaleDB / Tiger Cloud. Connection settings come from PGHOST, PGUSER, PGPASSWORD, ... (.env).
 
@@ -49,14 +61,7 @@ class PostgresStorage(Storage):
         self._write("INSERT INTO metrics (time, device_id, name, sensor, value) VALUES (%s, %s, %s, %s, %s)",rows)
 
     def save_event(self, event):
-        f=event.finding
-        recommendations=[{"action":r.action,"severity":r.severity.name,"command":r.command}
-                         for r in event.recommendations]
-        row=(event.time,f.device_id,f.key,f.kind,f.sensor,f.severity.name,event.type.value,f.message,
-             Jsonb(f.evidence),Jsonb(recommendations),event.opened_at)
-        self._write(
-            "INSERT INTO issue_events (time, device_id, issue_key, kind, sensor, severity, event, message,"
-            " evidence, recommendations, opened_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",[row])
+        self._write(INSERT_EVENT,[event_row(event)])
 
     def _write(self, sql, rows):
         if not rows:

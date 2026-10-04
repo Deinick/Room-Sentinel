@@ -17,9 +17,10 @@
           "type": "grafana-postgresql-datasource",
           "uid": "timescaledb"
         },
-        "query": "SELECT DISTINCT device_id FROM readings WHERE time > now() - interval '7 days' ORDER BY 1",
-        "definition": "SELECT DISTINCT device_id FROM readings WHERE time > now() - interval '7 days' ORDER BY 1",
-        "refresh": 2
+        "query": "SELECT device_id FROM readings WHERE time > now() - interval '7 days' GROUP BY device_id ORDER BY max(time) DESC",
+        "definition": "SELECT device_id FROM readings WHERE time > now() - interval '7 days' GROUP BY device_id ORDER BY max(time) DESC",
+        "refresh": 2,
+        "sort": 0
       }
     ]
   },

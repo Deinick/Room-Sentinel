@@ -25,10 +25,12 @@ class Pipeline:
         # process() runs on the reader, tick() on a timer thread; analyzers aren't thread-safe on their own.
         self._lock=threading.Lock()
 
-    def process(self, reading: Reading) -> list[IssueEvent]:
+    def process(self, reading: Reading, saved: bool=False) -> list[IssueEvent]:
+        """saved=True when the caller already stored the reading in its own transaction."""
         with self._lock:
             self.live.on_reading(reading)
-            self.storage.save_reading(reading)
+            if not saved:
+                self.storage.save_reading(reading)
             metrics=[]
             events=[]
             for analyzer in self.analyzers:

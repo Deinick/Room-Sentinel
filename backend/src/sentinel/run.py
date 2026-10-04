@@ -84,6 +84,7 @@ def main():
 
         from src.main import app
 
+        app.state.pipeline=pipeline  # the API's /devices/stream feeds the same pipeline
         threading.Thread(target=read_forever,args=(lines,pipeline),daemon=True).start()
         uvicorn.run(app,host="127.0.0.1",port=args.port)
     else:

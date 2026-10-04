@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
+from src.sentinel.advice import advise
 from src.sentinel.analysis.stats import least_squares, line_fit, median, robust_sigma
 from src.sentinel.analysis.thermal import ThermalAnalyzer
 from src.sentinel.config import SENSOR_NAMES
@@ -64,6 +65,12 @@ def test_heater_failure_is_noticed():
     minute,finding=found["HEATING_OFF"]
     assert finding.sensor=="Heater" and minute<10+60
     assert "FAST_COOLING" not in found  # a room without heat cools exactly as the model expects
+    assert advise(finding)[0].action.startswith("Check the heater")
+
+
+def test_heater_failure_in_hard_frost_is_noticed_too():
+    found,_=run("heater_failure",outside=-10.0,minutes=60)  # the heater barely switched off before
+    assert "HEATING_OFF" in found
 
 
 def test_hand_on_probe_is_ignored_not_alarmed():
@@ -90,6 +97,8 @@ def test_server_room_warming_fast_and_past_its_limit():
     found=synthetic(ThermalAnalyzer(profiles),24.0,0.25,30)  # cooling failed: +0.25 °C/min
     assert found["FAST_WARMING"][0]<15  # simple rule, before anything is learned
     assert found["TOO_WARM"][1].severity.name=="CRITICAL"
+    assert advise(found["FAST_WARMING"][1])[0].action.startswith("Check the cooling (air conditioning")
+    assert advise(found["TOO_WARM"][1])[0].action.startswith("Too hot for the equipment")
 
 
 def test_watch_direction_is_respected():
@@ -116,6 +125,68 @@ def test_metrics_once_a_minute():
         names+=[(m.time,m.name) for m in analyzer.analyze(reading).metrics]
     times=sorted({t for t,_ in names})
     assert all((b-a)>=timedelta(minutes=1) for a,b in zip(times,times[1:]))
+
+
+def forecasts(scenario, outside, seed=1, minutes=90):
+    """(minute, predicted minutes left) every 10 s, and the minute the room really crossed 18 °C."""
+    profiles=Profiles()
+    analyzer=ThermalAnalyzer(profiles)
+    device=SimulatedDevice("d",seed=seed)
+    device.apply({"outside_c":outside})
+    for time,frame in device.advance(2*3600):
+        profiles.set_outside("d",outside)
+        analyzer.analyze(to_reading(frame,time))
+    device.load_scenario(scenario)
+    state=analyzer._devices["d"]
+    predicted,crossed=[],None
+    for s in range(minutes*60):
+        time,frame=device.step()
+        profiles.set_outside("d",outside)
+        analyzer.analyze(to_reading(frame,time))
+        if s%10==0 and state.forecast:
+            predicted.append((s/60,state.forecast["minutes"]))
+        if crossed is None and state.blocks and state.blocks[-1].room<18.0:
+            crossed=s/60
+    return predicted,crossed
+
+
+def test_forecast_for_an_open_window_is_close_to_what_happens():
+    for seed in (1,2):
+        predicted,crossed=forecasts("window_open",0.0,seed,minutes=30)
+        assert predicted and crossed
+        errors=[minutes-(crossed-now) for now,minutes in predicted if now<crossed]
+        assert max(abs(e) for e in errors)<2.0  # minutes
+
+
+def test_forecast_after_heater_failure_in_frost():
+    predicted,crossed=forecasts("heater_failure",-10.0)
+    assert predicted and crossed
+    errors=[minutes-(crossed-now) for now,minutes in predicted if now<crossed and crossed-now<=20]
+    assert max(abs(e) for e in errors)<5.0
+
+
+def test_no_forecast_in_a_normal_heated_room():
+    for scenario in ("quiet","cold_night"):
+        predicted,_=forecasts(scenario,5.0,minutes=60)
+        assert predicted==[]  # the thermostat cycle must not "forecast" a drop that never comes
+
+
+def test_forecast_appears_in_the_alert_and_its_advice():
+    found,_=run("window_open",outside=-10.0,minutes=20)
+    minute,finding=found["FAST_COOLING"]
+    advice=advise(finding)[0].action
+    assert advice.startswith("Close the window")
+    later,_=run("window_open",outside=-10.0,minutes=20)
+    assert "TOO_COLD" in later
+
+
+def test_unheated_place_gets_a_limit_soon_warning():
+    profiles=Profiles()
+    profiles.set("rack-1",PRESETS["cold_storage"])
+    found=synthetic(ThermalAnalyzer(profiles),5.0,0.08,25)  # fridge warming slowly
+    minute,finding=found["LIMIT_SOON"]
+    assert "above 8 °C in about" in finding.message
+    assert advise(finding)[0].action.startswith("Check the cooling now")
 
 
 def test_stats_helpers():

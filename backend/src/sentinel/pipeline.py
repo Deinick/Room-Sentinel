@@ -33,12 +33,16 @@ class Pipeline:
                 self.storage.save_reading(reading)
             metrics=[]
             events=[]
+            findings=[]
             for analyzer in self.analyzers:
                 result=analyzer.analyze(reading)
                 metrics.extend(result.metrics)
+                findings.extend(result.findings)
                 events.extend(self.tracker.update(analyzer.name,reading.device_id,result.findings,reading.time))
             self.storage.save_metrics(metrics)
             self._publish(events)
+            for finding in findings:
+                self.live.refresh(finding,self.tracker.advise(finding))
             return events
 
     def tick(self, now: datetime) -> list[IssueEvent]:

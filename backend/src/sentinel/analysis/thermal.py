@@ -20,6 +20,7 @@ surprise the model can't explain. Until enough is learned (1 hour), only simple 
 All times come from the readings, so the demo's fast simulated clock works the same as real time.
 """
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -55,6 +56,10 @@ HEATER_IDLE_GAP=2.0  # °C: heater probe this close to the room means the heater
 HEATER_NEAR_LIMIT=0.5  # °C below the heater's usual switch-on temperature before "it should be running"
 HEATER_OFF_EVALS=36  # 6 minutes of that with an idle heater
 METRICS_EVERY=timedelta(minutes=1)
+FORECAST_MAX_MINUTES=120  # further out is too uncertain to show
+FORECAST_CRITICAL_MINUTES=15
+TREND_EVALS=12  # rooms without a heater: a steady trend for 2 minutes before forecasting
+FORECAST_BLOCKS=18  # the forecast uses the speed over the last 3 minutes
 
 
 @dataclass
@@ -110,6 +115,7 @@ class DeviceState:
     normal_gap: dict[str,float]=field(default_factory=dict)
     ambient_offset: dict[str,float]=field(default_factory=dict)
     heater_was_running: bool | None=None
+    heater_seen_running: bool=False
     heater_starts: deque=field(default_factory=lambda: deque(maxlen=20))  # room °C when the heater switched on
     disturbed: dict[str,tuple[datetime,float]]=field(default_factory=dict)  # sensor -> (until, jump)
     rate: Streak=field(default_factory=Streak)
@@ -118,6 +124,8 @@ class DeviceState:
     cold: Streak=field(default_factory=Streak)
     warm: Streak=field(default_factory=Streak)
     heater_off: Streak=field(default_factory=Streak)
+    trend: Streak=field(default_factory=Streak)  # steady significant change towards a limit
+    forecast: dict | None=None  # {"minutes", "limit_c", "direction", "method"} when there is one
     findings: list[Finding]=field(default_factory=list)
 
 
@@ -256,9 +264,51 @@ class ThermalAnalyzer(Analyzer):
             self._follow_normal_gaps(st,profile)
         self._update_limits(st,profile,room_now)
         self._update_heater(st,profile,room_now,slope,significant,source_mean)
+        recent=points[-FORECAST_BLOCKS:]
+        recent_fit=line_fit([(t-recent[0][0]).total_seconds()/60 for t,_ in recent],[r for _,r in recent]) \
+            if len(recent)>=FORECAST_BLOCKS*2//3 else None
+        rate_now=recent_fit[0] if recent_fit else slope  # speed over the last 3 minutes
+        st.forecast=self._forecast(st,profile,room_now,slope,significant,rate_now)
 
-        st.findings=self._findings(device_id,st,profile,slope,expected,surprise,room_now,source_mean,outside_known)
+        st.findings=self._findings(device_id,st,profile,rate_now,expected,surprise,room_now,source_mean,outside_known)
         return self._metrics(device_id,st,time,room_now,slope,expected,surprise)
+
+    def _forecast(self, st, profile, room, slope, significant, rate_now) -> dict | None:
+        """Minutes until the room crosses its limit, if it keeps doing what it does now.
+
+        Only when something is actually wrong (abnormal change, heater off) or, for places without
+        a heater, a steady trend: in a heated room the thermostat would otherwise "forecast" a
+        drop on every cycle that never happens because the heater switches back on.
+
+        Uses the speed over the last 3 minutes: the 10-minute slope still contains the calm
+        before a window opened and would promise far too much time.
+        """
+        direction="cold" if slope<0 else "warm"
+        limit=profile.min_c if direction=="cold" else profile.max_c
+        st.trend.update(significant and profile.watches(direction) and limit is not None,
+                        not significant,TREND_EVALS,TREND_EVALS)
+        something_wrong=(st.rate.active and st.direction==direction) or (direction=="cold" and st.heater_off.active)
+        steady_unheated=profile.source is None and st.trend.active
+        if limit is None or not significant or not (something_wrong or steady_unheated):
+            return None
+        if (room<=limit) if direction=="cold" else (room>=limit):
+            return None  # TOO_COLD / TOO_WARM covers it
+
+        rate=rate_now if (rate_now<0)==(direction=="cold") else slope
+
+        k=st.model.g+(st.model.h if st.model.uses_heater else 0.0) if st.model else 0.0
+        if k>1e-4:
+            # The room heads towards end = room + rate/k, getting slower as it gets closer
+            # (time constant 1/k, learned from this room).
+            end=room+rate/k
+            if not ((end<limit) if direction=="cold" else (end>limit)):
+                return None  # settles before it reaches the limit
+            minutes,method=math.log((room-end)/(limit-end))/k,"physics"
+        else:
+            minutes,method=(limit-room)/rate,"trend"
+        if not 0<minutes<=FORECAST_MAX_MINUTES:
+            return None
+        return {"minutes":minutes,"limit_c":limit,"direction":direction,"method":method}
 
     def _fit(self, rows) -> Model | None:
         with_heater=[r for r in rows if r[2] is not None]
@@ -349,18 +399,49 @@ class ThermalAnalyzer(Analyzer):
         idle=source-room<HEATER_IDLE_GAP
         if running and st.heater_was_running is False and not st.heater_off.active:
             st.heater_starts.append(room)
+        if running:
+            st.heater_seen_running=True
         if running or idle:
             st.heater_was_running=running
-        if len(st.heater_starts)<2:
+        if len(st.heater_starts)>=2:
+            should_run=room<median(list(st.heater_starts))-HEATER_NEAR_LIMIT
+        elif st.heater_seen_running and len(st.learn)>=LEARN_ROWS_MIN:
+            # In hard frost the heater may barely switch off, so there are few starts to learn
+            # from: compare with the room's usual temperature instead, with a wider margin.
+            should_run=room<median([r[1] for r in st.learn])-2*HEATER_NEAR_LIMIT-0.5
+        else:
             return
-        usual_start=median(list(st.heater_starts))
-        should_run=room<usual_start-HEATER_NEAR_LIMIT
         st.heater_off.update(idle and should_run and significant and slope<0,running,HEATER_OFF_EVALS,CLEAR_EVALS)
 
     # ---------------------------------------------------------------- output
 
+    @staticmethod
+    def _about(minutes: float) -> str:
+        """Rounded so it doesn't promise false precision: 'about 7 min', 'about 25 min'."""
+        return f"about {max(1,round(minutes))} min" if minutes<15 else f"about {5*round(minutes/5)} min"
+
+    def _forecast_text(self, forecast: dict | None) -> str:
+        if not forecast:
+            return ""
+        word="below" if forecast["direction"]=="cold" else "above"
+        return f"; {word} {forecast['limit_c']:g} °C in {self._about(forecast['minutes'])}"
+
+    def _severity(self, base: Severity, forecast: dict | None) -> Severity:
+        if forecast and forecast["minutes"]<FORECAST_CRITICAL_MINUTES:
+            return Severity.CRITICAL
+        return base
+
+    def _forecast_evidence(self, forecast: dict | None) -> dict:
+        if not forecast:
+            return {"forecast_minutes":None}
+        return {"forecast_minutes":round(forecast["minutes"],1),"forecast_limit_c":forecast["limit_c"],
+                "forecast_method":forecast["method"]}
+
     def _findings(self, device_id, st, profile, slope, expected, surprise, room, source, outside) -> list[Finding]:
+        """slope here is the current speed (last 3 minutes), so the text agrees with the forecast."""
         findings=self._disturbance_findings(device_id,st)
+        forecast=st.forecast
+        covered=False  # whether the forecast is already part of another finding
         if st.rate.active:
             direction=st.direction
             side,shifts=self._side(st,profile,direction)
@@ -374,33 +455,49 @@ class ThermalAnalyzer(Analyzer):
                       f"for these conditions: {where}")
             else:
                 text=f"Room {verb} {abs(slope):.2f} °C/min (still learning what is normal here): {where}"
+            own_forecast=forecast if forecast and forecast["direction"]==direction else None
+            covered=covered or own_forecast is not None
             # The side is in the evidence, not in `sensor`: the issue's identity includes the sensor,
             # and the side changing must not turn one event into two issues.
             findings.append(Finding(
                 kind="FAST_COOLING" if direction=="cold" else "FAST_WARMING",
-                device_id=device_id,severity=Severity.WARNING,message=text,
+                device_id=device_id,severity=self._severity(Severity.WARNING,own_forecast),
+                message=text+self._forecast_text(own_forecast),
                 evidence={"rate_c_per_min":round(slope,3),
                           "expected_c_per_min":None if expected is None else round(expected,3),
                           "surprise_c_per_min":None if surprise is None else round(surprise,3),
                           "room_c":round(room,2),"side":side,
                           "gap_shift_c":{k:round(v,2) for k,v in shifts.items()},
-                          "outside_c":outside,"model_ready":st.model is not None},
+                          "outside_c":outside,"model_ready":st.model is not None,"profile":profile.kind,
+                          **self._forecast_evidence(own_forecast)},
             ))
         severity=Severity[profile.limit_severity]
         if st.cold.active:
             findings.append(Finding("TOO_COLD",device_id,severity,
                                     f"Room went below the {profile.min_c:g} °C limit (now {room:.1f} °C)",
-                                    evidence={"room_c":round(room,2),"limit_c":profile.min_c}))
+                                    evidence={"room_c":round(room,2),"limit_c":profile.min_c,"profile":profile.kind}))
         if st.warm.active:
             findings.append(Finding("TOO_WARM",device_id,severity,
                                     f"Room went above the {profile.max_c:g} °C limit (now {room:.1f} °C)",
-                                    evidence={"room_c":round(room,2),"limit_c":profile.max_c}))
+                                    evidence={"room_c":round(room,2),"limit_c":profile.max_c,"profile":profile.kind}))
         if st.heater_off.active:
-            findings.append(Finding("HEATING_OFF",device_id,Severity.WARNING,
+            own_forecast=forecast if forecast and forecast["direction"]=="cold" else None
+            covered=covered or own_forecast is not None
+            findings.append(Finding("HEATING_OFF",device_id,self._severity(Severity.WARNING,own_forecast),
                                     f"The heater looks off ({source:.1f} °C, about room temperature) "
-                                    f"while the room is {room:.1f} °C and falling",
+                                    f"while the room is {room:.1f} °C and falling"+self._forecast_text(own_forecast),
                                     sensor=profile.source,
-                                    evidence={"heater_c":round(source,2),"room_c":round(room,2)}))
+                                    evidence={"heater_c":round(source,2),"room_c":round(room,2),"profile":profile.kind,
+                                              **self._forecast_evidence(own_forecast)}))
+        if forecast and not covered:
+            # A steady trend towards the limit where there is no heater to explain it (fridge, server room).
+            verb="cooling" if forecast["direction"]=="cold" else "warming"
+            findings.append(Finding("LIMIT_SOON",device_id,self._severity(Severity.WARNING,forecast),
+                                    f"Room {verb} steadily ({slope:+.2f} °C/min, now {room:.1f} °C)"
+                                    +self._forecast_text(forecast),
+                                    evidence={"rate_c_per_min":round(slope,3),"room_c":round(room,2),
+                                              "direction":forecast["direction"],"profile":profile.kind,
+                                              **self._forecast_evidence(forecast)}))
         return findings
 
     def _disturbance_findings(self, device_id: str, st: DeviceState) -> list[Finding]:
@@ -420,4 +517,6 @@ class ThermalAnalyzer(Analyzer):
         if expected is not None:
             metrics+=[Metric(device_id,time,"expected_rate_c_per_min",round(expected,4)),
                       Metric(device_id,time,"surprise_c_per_min",round(surprise,4))]
+        if st.forecast:
+            metrics.append(Metric(device_id,time,"forecast_minutes",round(st.forecast["minutes"],1)))
         return metrics

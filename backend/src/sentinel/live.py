@@ -6,8 +6,9 @@ same process as the API (python -m src.sentinel.run --api). History lives in the
 
 import threading
 import time
+from dataclasses import replace
 
-from src.sentinel.models import EventType, IssueEvent, Reading
+from src.sentinel.models import EventType, Finding, IssueEvent, Reading, Recommendation
 
 LIVE_SECONDS=5  # the device sends every second, so older than this means it went quiet
 
@@ -34,6 +35,13 @@ class LiveView:
     def on_reading(self, reading: Reading) -> None:
         with self._lock:
             self._latest[reading.device_id]=(reading,time.monotonic())
+
+    def refresh(self, finding: Finding, recommendations: list[Recommendation]) -> None:
+        """Keep an open issue's text, numbers and advice current between notifications."""
+        with self._lock:
+            event=self._open.get(finding.key)
+            if event is not None:
+                self._open[finding.key]=replace(event,finding=finding,recommendations=recommendations)
 
     def on_event(self, event: IssueEvent) -> None:
         with self._lock:
@@ -66,6 +74,7 @@ class LiveView:
             "sensor":e.finding.sensor,
             "severity":e.finding.severity.name,
             "message":e.finding.message,
+            "evidence":e.finding.evidence,  # numbers for the apps: side, rate, forecast_minutes, ...
             "opened_at":e.opened_at.isoformat(),
             "last_event":e.type.value,
             "recommendations":[r.action for r in e.recommendations],

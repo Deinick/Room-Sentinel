@@ -70,3 +70,9 @@ and account QR codes received from the ESP32, tracks the secure cloud-stream
 state, records the latest server-acknowledged telemetry sequence, and accepts
 the live `target_temperature` setting pushed by the backend. The Settings
 screen shows the current target, cloud state, and acknowledgement sequence.
+
+Device-local settings include Celsius/Fahrenheit display units, a 30-second
+backlight timeout with touch wake-up, Wi-Fi retry/change/forget controls, and a
+Device Information page with serial number, firmware versions, IP address, and
+Wi-Fi signal strength. Telemetry remains in Celsius regardless of the selected
+display unit.

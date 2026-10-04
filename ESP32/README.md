@@ -47,3 +47,8 @@ settings updates are forwarded to the STM32 over UART.
 
 The UART provisioning message contains a standard Wi-Fi QR payload. The STM32
 renders the Wi-Fi setup and account-pairing QR codes on the touchscreen.
+
+Saved Wi-Fi credentials are retained during an outage. The controller reports
+`disconnected` and retries automatically every 30 seconds. STM32 can also send
+`RETRY_WIFI`, `START_PROVISIONING`, or `FORGET_WIFI`. Display units are stored in
+ESP32 NVS through `SET_UNITS_C` / `SET_UNITS_F` and restored after a restart.

@@ -15,6 +15,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/timers.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
 #include "nvs.h"
@@ -26,12 +27,26 @@
 #define WIFI_SSID_KEY "ssid"
 #define WIFI_PASSWORD_KEY "password"
 #define PROVISIONING_URL "http://192.168.4.1/"
-#define MAX_STA_RETRIES 5
+#define WIFI_RECONNECT_INTERVAL_MS 30000
 #define DHCPS_OFFER_DNS 0x02
 
 static const char *TAG = "provisioning";
 static httpd_handle_t http_server;
-static int station_retry_count;
+static TimerHandle_t station_reconnect_timer;
+
+static void reconnect_timer_callback(TimerHandle_t timer)
+{
+    (void)timer;
+    ESP_LOGI(TAG, "Retrying saved Wi-Fi network");
+    esp_err_t result = esp_wifi_connect();
+    if (result != ESP_OK) {
+        ESP_LOGW(TAG, "Wi-Fi reconnect request failed: %s",
+                 esp_err_to_name(result));
+        if (station_reconnect_timer != NULL) {
+            (void)xTimerReset(station_reconnect_timer, 0);
+        }
+    }
+}
 
 static void clear_credentials(void)
 {
@@ -240,17 +255,28 @@ static void wifi_event_handler(void *argument, esp_event_base_t base,
     if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (station_retry_count++ < MAX_STA_RETRIES) {
-            uart_link_send_status("wifi_retry", "");
-            esp_wifi_connect();
-        } else {
-            uart_link_send_status("wifi_failed", "starting_setup");
-            clear_credentials();
-            esp_restart();
+        uart_link_send_status("disconnected", "retrying in 30 seconds");
+        uart_link_send_runtime_info("--", 0);
+        ESP_LOGW(TAG, "Wi-Fi disconnected; keeping saved credentials");
+        if (station_reconnect_timer != NULL &&
+            xTimerReset(station_reconnect_timer, 0) != pdPASS) {
+            ESP_LOGE(TAG, "Could not schedule Wi-Fi reconnect");
         }
     } else if (base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        station_retry_count = 0;
+        ip_event_got_ip_t *got_ip = (ip_event_got_ip_t *)event_data;
+        char ip_address[16];
+        snprintf(ip_address, sizeof(ip_address), IPSTR,
+                 IP2STR(&got_ip->ip_info.ip));
+        wifi_ap_record_t access_point = {0};
+        int rssi = 0;
+        if (esp_wifi_sta_get_ap_info(&access_point) == ESP_OK) {
+            rssi = access_point.rssi;
+        }
+        if (station_reconnect_timer != NULL) {
+            (void)xTimerStop(station_reconnect_timer, 0);
+        }
         uart_link_send_status("wifi_connected", "");
+        uart_link_send_runtime_info(ip_address, rssi);
     } else if (base == WIFI_EVENT &&
                event_id == WIFI_EVENT_AP_STACONNECTED) {
         ESP_LOGI(TAG, "Phone connected to setup access point");
@@ -294,6 +320,12 @@ esp_err_t wifi_provisioning_connect_saved(void)
                                                wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
                                                wifi_event_handler, NULL));
+    station_reconnect_timer = xTimerCreate(
+        "wifi_reconnect", pdMS_TO_TICKS(WIFI_RECONNECT_INTERVAL_MS),
+        pdFALSE, NULL, reconnect_timer_callback);
+    if (station_reconnect_timer == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
     wifi_config_t station_config = {0};
     strlcpy((char *)station_config.sta.ssid, ssid,
             sizeof(station_config.sta.ssid));
@@ -368,6 +400,34 @@ esp_err_t wifi_provisioning_start(esp_netif_t *ap_netif)
 void wifi_provisioning_request_setup(void)
 {
     uart_link_send_status("restarting_setup", "");
+    clear_credentials();
+    vTaskDelay(pdMS_TO_TICKS(150));
+    esp_restart();
+}
+
+void wifi_provisioning_retry_now(void)
+{
+    wifi_ap_record_t access_point = {0};
+    if (esp_wifi_sta_get_ap_info(&access_point) == ESP_OK) {
+        uart_link_send_status("wifi_connected", "already connected");
+        return;
+    }
+    if (station_reconnect_timer != NULL) {
+        (void)xTimerStop(station_reconnect_timer, 0);
+    }
+    uart_link_send_status("wifi_connecting", "manual retry");
+    esp_err_t result = esp_wifi_connect();
+    if (result != ESP_OK) {
+        uart_link_send_status("disconnected", "retrying in 30 seconds");
+        if (station_reconnect_timer != NULL) {
+            (void)xTimerReset(station_reconnect_timer, 0);
+        }
+    }
+}
+
+void wifi_provisioning_forget_network(void)
+{
+    uart_link_send_status("network_forgotten", "starting setup");
     clear_credentials();
     vTaskDelay(pdMS_TO_TICKS(150));
     esp_restart();

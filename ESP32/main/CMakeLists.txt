@@ -8,6 +8,7 @@ idf_component_register(
     REQUIRES
         esp_http_client
         esp_event
+        esp_app_format
         esp_http_server
         esp_netif
         esp_wifi

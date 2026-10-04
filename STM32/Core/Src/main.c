@@ -38,9 +38,12 @@ typedef enum {
   UI_HOME = 0,
   UI_STATISTICS,
   UI_SETTINGS,
+  UI_WIFI_MANAGE,
+  UI_DEVICE_INFO,
   UI_WIFI_SETUP,
   UI_ACCOUNT_LOGIN,
-  UI_RESET_CONFIRM
+  UI_RESET_CONFIRM,
+  UI_FORGET_CONFIRM
 } UiScreen_t;
 
 /* USER CODE END PTD */
@@ -60,6 +63,8 @@ typedef enum {
 #define HISTORY_SAMPLES 10U
 #define HISTORY_INTERVAL_MS 60000U
 #define TEMPERATURE_INVALID INT16_MIN
+#define DISPLAY_SLEEP_TIMEOUT_MS 30000U
+#define STM32_FIRMWARE_VERSION "1.2.0"
 
 /* USER CODE END PD */
 
@@ -117,6 +122,12 @@ static uint8_t history_count;
 static uint8_t history_next;
 static uint32_t history_last_tick;
 static uint8_t sensor_trend_down[SENSOR_COUNT];
+static uint8_t temperature_unit_fahrenheit;
+static uint8_t display_sleeping;
+static uint32_t last_touch_tick;
+static char esp_firmware_version[24] = "WAITING";
+static char esp_ip_address[16] = "--";
+static int esp_wifi_rssi;
 
 static osThreadId_t uartTaskHandle;
 static const osThreadAttr_t uartTask_attributes = {
@@ -162,6 +173,9 @@ static void UiRender(void);
 static void UiHandleTouch(void);
 static void UiServiceDelay(uint32_t duration_ms);
 static void UiDrawStatistics(void);
+static void UiManageSleep(void);
+static void FormatTemperatureTenths(int32_t celsius_tenths, char *buffer,
+                                    size_t buffer_size);
 static void HistoryCapture(void);
 static void Esp32SendCommand(const char *command);
 static void Esp32SendTelemetry(void);
@@ -266,6 +280,22 @@ static void Esp32SendTelemetry(void)
   }
 }
 
+static void FormatTemperatureTenths(int32_t celsius_tenths, char *buffer,
+                                    size_t buffer_size)
+{
+  int32_t value = celsius_tenths;
+  char unit = 'C';
+  if (temperature_unit_fahrenheit != 0U)
+  {
+    value = (value * 9L) / 5L + 320L;
+    unit = 'F';
+  }
+  int32_t magnitude = (value < 0) ? -value : value;
+  (void)snprintf(buffer, buffer_size, "%s%ld.%ld %c",
+                 (value < 0) ? "-" : "", (long)(magnitude / 10L),
+                 (long)(magnitude % 10L), unit);
+}
+
 static void DisplayTemperature(uint8_t sensor_index)
 {
   char line[32];
@@ -278,12 +308,7 @@ static void DisplayTemperature(uint8_t sensor_index)
     int32_t tenths = (int32_t)((temperature >= 0.0f)
                               ? (temperature * 10.0f + 0.5f)
                               : (temperature * 10.0f - 0.5f));
-    int32_t magnitude = (tenths < 0) ? -tenths : tenths;
-
-    (void)snprintf(line, sizeof(line), "%s%ld.%ld C",
-                   (tenths < 0) ? "-" : "",
-                   (long)(magnitude / 10),
-                   (long)(magnitude % 10));
+    FormatTemperatureTenths(tenths, line, sizeof(line));
   }
   else
   {
@@ -362,10 +387,9 @@ static void DisplayServerStatus(void)
     int32_t tenths = (int32_t)((target >= 0.0f)
                               ? (target * 10.0f + 0.5f)
                               : (target * 10.0f - 0.5f));
-    int32_t magnitude = (tenths < 0) ? -tenths : tenths;
-    (void)snprintf(target_line, sizeof(target_line), "TARGET %s%ld.%ld C",
-                   (tenths < 0) ? "-" : "", (long)(magnitude / 10),
-                   (long)(magnitude % 10));
+    char value[20];
+    FormatTemperatureTenths(tenths, value, sizeof(value));
+    (void)snprintf(target_line, sizeof(target_line), "TARGET %s", value);
   }
   else
   {
@@ -463,12 +487,11 @@ static void UiDrawStatistics(void)
     }
     char value_text[16];
     if (latest == TEMPERATURE_INVALID)
-      (void)strncpy(value_text, "--.- C", sizeof(value_text));
+      (void)snprintf(value_text, sizeof(value_text), "--.- %c",
+                     temperature_unit_fahrenheit != 0U ? 'F' : 'C');
     else
     {
-      int16_t magnitude = (latest < 0) ? -latest : latest;
-      (void)snprintf(value_text, sizeof(value_text), "%s%d.%d C",
-                     (latest < 0) ? "-" : "", magnitude / 10, magnitude % 10);
+      FormatTemperatureTenths(latest, value_text, sizeof(value_text));
     }
     Displ_CString(105, y, 174, (uint16_t)(y + 36U), value_text,
                   Font16, 1U, UI_TEXT, UI_PANEL);
@@ -608,11 +631,43 @@ static void UiRender(void)
     UiDrawStatistics();
   } else if (ui_screen == UI_SETTINGS) {
     Displ_CString(20, 10, 200, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
-    UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", UI_PANEL);
-    UiDrawButton(40, 120, 400, 50, "ACCOUNT LOGIN", UI_PANEL);
-    UiDrawButton(40, 180, 400, 50, "FACTORY RESET", D_RED);
+    UiDrawButton(20, 60, 210, 48, "WI-FI", UI_PANEL);
+    UiDrawButton(250, 60, 210, 48,
+                 temperature_unit_fahrenheit != 0U ? "UNITS: F" : "UNITS: C",
+                 UI_PANEL);
+    UiDrawButton(20, 120, 210, 48, "ACCOUNT LOGIN", UI_PANEL);
+    UiDrawButton(250, 120, 210, 48, "DEVICE INFO", UI_PANEL);
+    UiDrawButton(20, 180, 440, 48, "FACTORY RESET", D_RED);
     UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
     DisplayServerStatus();
+  } else if (ui_screen == UI_WIFI_MANAGE) {
+    Displ_CString(20, 8, 250, 45, "WI-FI", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
+    Displ_CString(250, 8, 465, 45,
+                  (strncmp(wifi_status_text, "WIFI: ", 6U) == 0)
+                      ? &wifi_status_text[6] : wifi_status_text,
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    UiDrawButton(40, 58, 400, 48, "RETRY NOW", UI_PANEL);
+    UiDrawButton(40, 118, 400, 48, "CHANGE WI-FI", UI_PANEL);
+    UiDrawButton(40, 178, 400, 48, "FORGET NETWORK", D_RED);
+    UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
+  } else if (ui_screen == UI_DEVICE_INFO) {
+    char line[64];
+    Displ_CString(20, 8, 459, 45, "DEVICE INFORMATION",
+                  Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
+    (void)snprintf(line, sizeof(line), "SERIAL: %s", device_serial);
+    Displ_CString(30, 55, 450, 83, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    (void)snprintf(line, sizeof(line), "STM32 FIRMWARE: %s", STM32_FIRMWARE_VERSION);
+    Displ_CString(30, 92, 450, 120, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    (void)snprintf(line, sizeof(line), "ESP32 FIRMWARE: %s", esp_firmware_version);
+    Displ_CString(30, 129, 450, 157, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    (void)snprintf(line, sizeof(line), "IP ADDRESS: %s", esp_ip_address);
+    Displ_CString(30, 166, 450, 194, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    if (esp_wifi_rssi != 0)
+      (void)snprintf(line, sizeof(line), "WI-FI SIGNAL: %d dBm", esp_wifi_rssi);
+    else
+      (void)strncpy(line, "WI-FI SIGNAL: DISCONNECTED", sizeof(line));
+    Displ_CString(30, 203, 450, 231, line, Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
   } else if (ui_screen == UI_WIFI_SETUP) {
     Displ_CString(20, 8, 459, 45, "WI-FI SETUP", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawQrCode(wifi_qr_payload);
@@ -633,12 +688,19 @@ static void UiRender(void)
     UiDrawButton(15, 265, 130, 45, "< BACK", UI_PANEL);
     Displ_CString(150, 270, 470, 310, login_status_text,
                   Font16, 1U, UI_TEXT, UI_BACKGROUND);
-  } else {
+  } else if (ui_screen == UI_RESET_CONFIRM) {
     Displ_CString(20, 30, 459, 70, "FACTORY RESET?", Font16, 1U, D_RED, UI_BACKGROUND);
     Displ_CString(30, 90, 449, 130, "Wi-Fi settings will be erased.",
                   Font16, 1U, UI_TEXT, UI_BACKGROUND);
     UiDrawButton(40, 175, 180, 65, "CANCEL", UI_PANEL);
     UiDrawButton(260, 175, 180, 65, "RESET", D_RED);
+  } else {
+    Displ_CString(20, 30, 459, 70, "FORGET WI-FI NETWORK?",
+                  Font16, 1U, D_RED, UI_BACKGROUND);
+    Displ_CString(30, 90, 449, 130, "Saved Wi-Fi credentials will be erased.",
+                  Font16, 1U, UI_TEXT, UI_BACKGROUND);
+    UiDrawButton(40, 175, 180, 65, "CANCEL", UI_PANEL);
+    UiDrawButton(260, 175, 180, 65, "FORGET", D_RED);
   }
   ui_redraw = 0U;
 }
@@ -664,6 +726,14 @@ static void UiHandleTouch(void)
     return;
   }
 
+  last_touch_tick = HAL_GetTick();
+  if (display_sleeping != 0U)
+  {
+    display_sleeping = 0U;
+    (void)Displ_BackLight('W');
+    return;
+  }
+
   if (ui_screen == UI_HOME && y <= 70U) {
     if (x <= 75U)
       ui_screen = UI_STATISTICS;
@@ -676,18 +746,26 @@ static void UiHandleTouch(void)
     ui_screen = UI_HOME;
     ui_redraw = 1U;
   } else if (ui_screen == UI_SETTINGS) {
-    if (y >= 45U && y < 115U) {
-      wifi_qr_payload[0] = '\0';
-      ui_screen = UI_WIFI_SETUP;
+    if (x < 240U && y >= 45U && y < 115U) {
+      ui_screen = UI_WIFI_MANAGE;
       ui_redraw = 1U;
-      Esp32SendCommand("START_PROVISIONING");
-    } else if (y >= 115U && y < 175U) {
+    } else if (x >= 240U && y >= 45U && y < 115U) {
+      temperature_unit_fahrenheit = !temperature_unit_fahrenheit;
+      Esp32SendCommand(temperature_unit_fahrenheit != 0U
+                           ? "SET_UNITS_F" : "SET_UNITS_C");
+      (void)memset(displayed_temperature_text, 0,
+                   sizeof(displayed_temperature_text));
+      ui_redraw = 1U;
+    } else if (x < 240U && y >= 115U && y < 175U) {
       login_qr_payload[0] = '\0';
       (void)strncpy(login_status_text, "Requesting login...",
                     sizeof(login_status_text));
       ui_screen = UI_ACCOUNT_LOGIN;
       ui_redraw = 1U;
       Esp32SendCommand("START_LOGIN");
+    } else if (x >= 240U && y >= 115U && y < 175U) {
+      ui_screen = UI_DEVICE_INFO;
+      ui_redraw = 1U;
     } else if (y >= 175U && y < 240U) {
       ui_screen = UI_RESET_CONFIRM;
       ui_redraw = 1U;
@@ -695,6 +773,25 @@ static void UiHandleTouch(void)
       ui_screen = UI_HOME;
       ui_redraw = 1U;
     }
+  } else if (ui_screen == UI_WIFI_MANAGE) {
+    if (y >= 45U && y < 112U) {
+      Esp32SendCommand("RETRY_WIFI");
+      ui_redraw = 1U;
+    } else if (y >= 112U && y < 172U) {
+      wifi_qr_payload[0] = '\0';
+      ui_screen = UI_WIFI_SETUP;
+      ui_redraw = 1U;
+      Esp32SendCommand("START_PROVISIONING");
+    } else if (y >= 172U && y < 240U) {
+      ui_screen = UI_FORGET_CONFIRM;
+      ui_redraw = 1U;
+    } else if (x <= 180U && y >= 240U) {
+      ui_screen = UI_SETTINGS;
+      ui_redraw = 1U;
+    }
+  } else if (ui_screen == UI_DEVICE_INFO && x <= 180U && y >= 240U) {
+    ui_screen = UI_SETTINGS;
+    ui_redraw = 1U;
   } else if (ui_screen == UI_WIFI_SETUP && x <= 180U && y >= 240U) {
     ui_screen = UI_SETTINGS;
     ui_redraw = 1U;
@@ -710,6 +807,26 @@ static void UiHandleTouch(void)
       Esp32SendCommand("FACTORY_RESET");
     }
     ui_redraw = 1U;
+  } else if (ui_screen == UI_FORGET_CONFIRM && y >= 145U && y <= 270U) {
+    if (x < 240U) {
+      ui_screen = UI_WIFI_MANAGE;
+    } else {
+      wifi_qr_payload[0] = '\0';
+      ui_screen = UI_WIFI_SETUP;
+      Esp32SendCommand("FORGET_WIFI");
+    }
+    ui_redraw = 1U;
+  }
+}
+
+static void UiManageSleep(void)
+{
+  if (display_sleeping == 0U &&
+      (uint32_t)(HAL_GetTick() - last_touch_tick) >= DISPLAY_SLEEP_TIMEOUT_MS)
+  {
+    (void)Displ_BackLight('S');
+    (void)Displ_BackLight('0');
+    display_sleeping = 1U;
   }
 }
 
@@ -719,6 +836,7 @@ static void UiServiceDelay(uint32_t duration_ms)
   while (elapsed < duration_ms)
   {
     UiHandleTouch();
+    UiManageSleep();
     if (ui_redraw != 0U)
     {
       UiRender();
@@ -772,6 +890,7 @@ int main(void)
   Displ_Init(Displ_Orientat_270);
   Displ_CLS(UI_BACKGROUND);
   Displ_BackLight('I');
+  last_touch_tick = HAL_GetTick();
 
   for (uint8_t i = 0U; i < SENSOR_COUNT; i++)
   {
@@ -1210,6 +1329,47 @@ static void StartUartTask(void *argument)
             login_sequence++;
           }
           taskEXIT_CRITICAL();
+        }
+      }
+      if (strstr(line, "\"type\":\"runtime_info\"") != NULL)
+      {
+        char firmware[sizeof(esp_firmware_version)] = "";
+        char ip_address[sizeof(esp_ip_address)] = "";
+        float rssi = 0.0f;
+        (void)JsonStringField(line, "esp_firmware", firmware,
+                              sizeof(firmware));
+        (void)JsonStringField(line, "ip", ip_address, sizeof(ip_address));
+        (void)JsonNumberField(line, "rssi", &rssi);
+        taskENTER_CRITICAL();
+        if (firmware[0] != '\0')
+        {
+          (void)strncpy(esp_firmware_version, firmware,
+                        sizeof(esp_firmware_version));
+          esp_firmware_version[sizeof(esp_firmware_version) - 1U] = '\0';
+        }
+        if (ip_address[0] != '\0')
+        {
+          (void)strncpy(esp_ip_address, ip_address,
+                        sizeof(esp_ip_address));
+          esp_ip_address[sizeof(esp_ip_address) - 1U] = '\0';
+        }
+        esp_wifi_rssi = (int)rssi;
+        taskEXIT_CRITICAL();
+        if (ui_screen == UI_DEVICE_INFO) ui_redraw = 1U;
+      }
+      if (strstr(line, "\"type\":\"preferences\"") != NULL)
+      {
+        char unit[2] = "";
+        if (JsonStringField(line, "unit", unit, sizeof(unit)) != 0U)
+        {
+          uint8_t use_fahrenheit = (unit[0] == 'F') ? 1U : 0U;
+          if (temperature_unit_fahrenheit != use_fahrenheit)
+          {
+            temperature_unit_fahrenheit = use_fahrenheit;
+            (void)memset(displayed_temperature_text, 0,
+                         sizeof(displayed_temperature_text));
+            ui_redraw = 1U;
+          }
         }
       }
       if (pairing_line != 0U)

@@ -9,4 +9,6 @@ esp_err_t wifi_provisioning_start(esp_netif_t *ap_netif);
 bool wifi_provisioning_has_credentials(void);
 esp_err_t wifi_provisioning_connect_saved(void);
 void wifi_provisioning_request_setup(void);
+void wifi_provisioning_retry_now(void);
+void wifi_provisioning_forget_network(void);
 void wifi_provisioning_factory_reset(void);

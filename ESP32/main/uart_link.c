@@ -4,10 +4,12 @@
 #include <string.h>
 
 #include "driver/uart.h"
+#include "esp_app_desc.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "nvs.h"
 #include "wifi_provisioning.h"
 #include "server_link.h"
 
@@ -22,10 +24,45 @@ static char latest_status[256] =
     "{\"type\":\"status\",\"state\":\"booting\",\"detail\":\"\"}";
 static char latest_server_status[256] =
     "{\"type\":\"server_status\",\"state\":\"unpaired\",\"detail\":\"\"}";
-static char latest_device_info[96];
+static char latest_device_info[128];
+static char latest_runtime_info[192];
+static char latest_preferences[64] =
+    "{\"type\":\"preferences\",\"unit\":\"C\"}";
 static char latest_provisioning[384];
 static bool provisioning_available;
 static bool device_info_available;
+static bool runtime_info_available;
+static void uart_link_write_line(const char *line);
+
+static void set_temperature_unit(const char *unit)
+{
+    nvs_handle_t handle;
+    if (nvs_open("ui", NVS_READWRITE, &handle) == ESP_OK) {
+        if (nvs_set_str(handle, "unit", unit) == ESP_OK) (void)nvs_commit(handle);
+        nvs_close(handle);
+    }
+    xSemaphoreTake(link_mutex, portMAX_DELAY);
+    snprintf(latest_preferences, sizeof(latest_preferences),
+             "{\"type\":\"preferences\",\"unit\":\"%s\"}", unit);
+    xSemaphoreGive(link_mutex);
+    uart_link_write_line(latest_preferences);
+}
+
+static void load_temperature_unit(void)
+{
+    char unit[2] = "C";
+    size_t size = sizeof(unit);
+    nvs_handle_t handle;
+    if (nvs_open("ui", NVS_READONLY, &handle) == ESP_OK) {
+        if (nvs_get_str(handle, "unit", unit, &size) != ESP_OK ||
+            (strcmp(unit, "C") != 0 && strcmp(unit, "F") != 0)) {
+            strlcpy(unit, "C", sizeof(unit));
+        }
+        nvs_close(handle);
+    }
+    snprintf(latest_preferences, sizeof(latest_preferences),
+             "{\"type\":\"preferences\",\"unit\":\"%s\"}", unit);
+}
 
 static void uart_link_write_line(const char *line)
 {
@@ -45,6 +82,8 @@ static void uart_status_task(void *argument)
     char message[sizeof(latest_status)];
     char server_message[sizeof(latest_server_status)];
     char device_message[sizeof(latest_device_info)];
+    char runtime_message[sizeof(latest_runtime_info)];
+    char preferences_message[sizeof(latest_preferences)];
     char provisioning_message[sizeof(latest_provisioning)];
     (void)argument;
 
@@ -54,14 +93,22 @@ static void uart_status_task(void *argument)
         strlcpy(message, latest_status, sizeof(message));
         strlcpy(server_message, latest_server_status, sizeof(server_message));
         strlcpy(device_message, latest_device_info, sizeof(device_message));
+        strlcpy(runtime_message, latest_runtime_info, sizeof(runtime_message));
+        strlcpy(preferences_message, latest_preferences,
+                sizeof(preferences_message));
         strlcpy(provisioning_message, latest_provisioning,
                 sizeof(provisioning_message));
         bool have_device_info = device_info_available;
+        bool have_runtime_info = runtime_info_available;
         bool have_provisioning = provisioning_available;
         xSemaphoreGive(link_mutex);
         if (have_device_info) {
             uart_link_write_line(device_message);
         }
+        if (have_runtime_info) {
+            uart_link_write_line(runtime_message);
+        }
+        uart_link_write_line(preferences_message);
         if (have_provisioning) {
             uart_link_write_line(provisioning_message);
         }
@@ -87,6 +134,14 @@ static void uart_command_task(void *argument)
             ESP_LOGI(TAG, "RX command: %s", line);
             if (strcmp(line, "START_PROVISIONING") == 0) {
                 wifi_provisioning_request_setup();
+            } else if (strcmp(line, "RETRY_WIFI") == 0) {
+                wifi_provisioning_retry_now();
+            } else if (strcmp(line, "FORGET_WIFI") == 0) {
+                wifi_provisioning_forget_network();
+            } else if (strcmp(line, "SET_UNITS_C") == 0) {
+                set_temperature_unit("C");
+            } else if (strcmp(line, "SET_UNITS_F") == 0) {
+                set_temperature_unit("F");
             } else if (strcmp(line, "FACTORY_RESET") == 0) {
                 wifi_provisioning_factory_reset();
             } else if (strcmp(line, "START_LOGIN") == 0) {
@@ -120,6 +175,7 @@ esp_err_t uart_link_init(void)
     if (link_mutex == NULL) {
         return ESP_ERR_NO_MEM;
     }
+    load_temperature_unit();
     ESP_ERROR_CHECK(uart_driver_install(LINK_UART, 1024, 1024, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(LINK_UART, &config));
     ESP_ERROR_CHECK(uart_set_pin(LINK_UART, LINK_TX_GPIO, LINK_RX_GPIO,
@@ -199,6 +255,22 @@ void uart_link_send_device_info(const char *serial)
     xSemaphoreTake(link_mutex, portMAX_DELAY);
     strlcpy(latest_device_info, message, sizeof(latest_device_info));
     device_info_available = true;
+    xSemaphoreGive(link_mutex);
+    uart_link_write_line(message);
+}
+
+void uart_link_send_runtime_info(const char *ip_address, int rssi)
+{
+    char message[sizeof(latest_runtime_info)];
+    const esp_app_desc_t *description = esp_app_get_description();
+    snprintf(message, sizeof(message),
+             "{\"type\":\"runtime_info\",\"esp_firmware\":\"%s\","
+             "\"ip\":\"%s\",\"rssi\":%d}",
+             description != NULL ? description->version : "unknown",
+             ip_address != NULL ? ip_address : "--", rssi);
+    xSemaphoreTake(link_mutex, portMAX_DELAY);
+    strlcpy(latest_runtime_info, message, sizeof(latest_runtime_info));
+    runtime_info_available = true;
     xSemaphoreGive(link_mutex);
     uart_link_write_line(message);
 }

@@ -1,6 +1,6 @@
 // The website's palette (frontend/room-view/styles.css), so the app feels like the same product.
 export const colors = {
-  bg: '#0b0e13',
+  bg: '#10151d', // the website's navy (frontend/room-view, body background)
   card: 'rgba(255,255,255,0.07)',
   cardStrong: 'rgba(255,255,255,0.11)',
   line: 'rgba(255,255,255,0.14)',

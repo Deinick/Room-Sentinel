@@ -1,5 +1,5 @@
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { DarkTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -21,6 +21,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SessionProvider>
         <StatusBar style="light" />
+        {/* Navigation paints its own (light) background behind screens unless told otherwise:
+            dark theme, transparent background, so our navy and the particles show through. */}
+        <ThemeProvider value={{ ...DarkTheme, colors: { ...DarkTheme.colors, background: 'transparent', card: colors.bg, text: colors.text, border: 'transparent', primary: colors.accent } }}>
         <View style={{ flex: 1, backgroundColor: colors.bg }}>
           <Particles />
           <Stack
@@ -39,6 +42,7 @@ export default function RootLayout() {
             <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           </Stack>
         </View>
+        </ThemeProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );

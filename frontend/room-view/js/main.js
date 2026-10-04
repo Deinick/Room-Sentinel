@@ -868,6 +868,8 @@ function renderDevices() {
   }
   const devices = account.devices || [];
   $('devices-sub').textContent = devices.length ? `Paired to ${account.email}.` : 'No device on your account yet. Add one below.';
+  // With devices, the list leads and the setup guide folds away.
+  $('add-device').open = !devices.length;
   const value = v => (v == null ? '' : v);
   list.innerHTML = devices.map(d => `
     <div class="device-card ${source.kind === 'backend' && source.deviceId === d.device_id ? 'current' : ''}" data-id="${escapeHtml(d.device_id)}">

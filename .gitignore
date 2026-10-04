@@ -1,0 +1,16 @@
+# STM32CubeIDE generated build output
+STM32/Debug/
+STM32/Release/
+
+# ESP-IDF generated build output
+ESP32/build/
+ESP32/sdkconfig.old
+
+# Local headless-build workspace
+.cubeide-workspace/
+
+# Editor and OS metadata
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

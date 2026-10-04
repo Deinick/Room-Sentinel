@@ -1,9 +1,10 @@
 // Sign in, or create an account. Same rules and messages as the website.
 import { Redirect } from 'expo-router';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Text } from '@/components/Text';
 import { Button, Card, Eyebrow, Field, Message, styles } from '@/components/ui';
 import { DEFAULT_API, PASSWORD_RULE, validEmail, validPassword } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -54,11 +55,11 @@ export default function Login() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ padding: 22, paddingTop: 40, flexGrow: 1, justifyContent: 'center' }} keyboardShouldPersistTaps="handled">
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-            <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#6aa3dd', alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: '#6aa3dd', alignItems: 'center', justifyContent: 'center' }}>
               <View style={{ width: 11, height: 11, borderRadius: 6, backgroundColor: '#fff' }} />
             </View>
             <View>
-              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 16 }}>Room Sentinel</Text>
+              <Text style={{ fontWeight: '700', fontSize: 16 }}>Room Sentinel</Text>
               <Text style={styles.muted}>Thermal guard for real rooms</Text>
             </View>
           </View>
@@ -79,7 +80,7 @@ export default function Login() {
           <Pressable onPress={() => { setMode(registering ? 'login' : 'register'); setError(''); setNotice(''); }} style={{ marginTop: 18, alignItems: 'center' }}>
             <Text style={{ color: colors.text2, fontSize: 15 }}>
               {registering ? 'Already have an account? ' : 'New to Room Sentinel? '}
-              <Text style={{ color: colors.accent, fontWeight: '600' }}>{registering ? 'Sign in' : 'Create an account'}</Text>
+              <Text style={{ color: colors.accent, fontWeight: '500' }}>{registering ? 'Sign in' : 'Create an account'}</Text>
             </Text>
           </Pressable>
 

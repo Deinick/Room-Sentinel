@@ -1,12 +1,13 @@
 // One device: the room temperature (like the website's top-right card), then every sensor.
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, View } from 'react-native';
 
 import { SignedIn } from '@/components/Gate';
-import { Button, Card, Field, Message, Pill, styles } from '@/components/ui';
+import { Text } from '@/components/Text';
+import { Button, Card, Field, Message, Status, styles } from '@/components/ui';
 import type { Device, Issue, Latest } from '@/lib/api';
-import { SENSORS, STATUS_TEXT, forecastText, kindLabel, roomStatus, roomTemperature, tempColor } from '@/lib/room';
+import { SENSORS, STATUS_TEXT, forecastText, kindLabel, roomStatus, roomTemperature } from '@/lib/room';
 import { useSession } from '@/lib/session';
 import { colors } from '@/lib/theme';
 
@@ -74,7 +75,6 @@ function DeviceDetail() {
     ]);
   }
 
-  const target = device?.target_temperature ?? 21;
   const temp = roomTemperature(latest);
   const status = roomStatus(latest, issues);
   const forecast = forecastText(issues);
@@ -105,16 +105,16 @@ function DeviceDetail() {
 
       <Card>
         <Text style={[styles.muted, { letterSpacing: 2 }]}>ROOM TEMPERATURE</Text>
-        <Text style={{ color: colors.text, fontSize: 72, fontWeight: '200', marginTop: 4 }}>
+        <Text style={{ fontSize: 72, fontWeight: '300', marginTop: 4 }}>
           {temp == null ? '--.-' : temp.toFixed(1)}<Text style={{ fontSize: 24, color: colors.text2 }}>°C</Text>
         </Text>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
           <Text style={styles.muted}>{latest ? (latest.mode === 'demo' ? 'Demo room' : `${device?.device_id ?? id}`) : 'No readings yet'}</Text>
-          <Pill label={status.label} color={status.color} />
+          <Status label={status.label} color={status.color} />
         </View>
         {forecast && (
           <View style={{ marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line }}>
-            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>{forecast}</Text>
+            <Text style={{ fontSize: 15, fontWeight: '500' }}>{forecast}</Text>
             {roomIssues[0]?.recommendations?.[0] && <Text style={[styles.sub, { marginTop: 4 }]}>{roomIssues[0].recommendations[0]}</Text>}
           </View>
         )}
@@ -126,11 +126,11 @@ function DeviceDetail() {
       {roomIssues.map(issue => (
         <Card key={`${issue.kind}-${issue.sensor ?? ''}`} style={{ borderColor: SEVERITY_COLOR[issue.severity] }}>
           <Text style={{ color: SEVERITY_COLOR[issue.severity], fontSize: 12, fontWeight: '700', letterSpacing: 1.5 }}>{kindLabel(issue.kind).toUpperCase()}</Text>
-          <Text style={{ color: colors.text, fontSize: 15, marginTop: 6, lineHeight: 21 }}>{issue.message}</Text>
+          <Text style={{ fontSize: 15, marginTop: 6, lineHeight: 21 }}>{issue.message}</Text>
           {issue.recommendations?.[0] && (
-            <View style={{ marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: colors.card }}>
+            <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.line }}>
               <Text style={[styles.muted, { fontSize: 11, letterSpacing: 1.5 }]}>WHAT TO DO</Text>
-              <Text style={{ color: colors.text, fontSize: 15, marginTop: 3 }}>{issue.recommendations[0]}</Text>
+              <Text style={{ fontSize: 15, marginTop: 3 }}>{issue.recommendations[0]}</Text>
             </View>
           )}
         </Card>
@@ -145,16 +145,13 @@ function DeviceDetail() {
           return (
             <View key={key} style={{ paddingVertical: 14, borderTopWidth: i ? 1 : 0, borderTopColor: colors.line }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: !latest ? colors.text3 : ok ? tempColor(reading!.temp!, target) : colors.crit }} />
-                  <Text style={{ color: colors.text, fontSize: 16 }}>{label}</Text>
-                </View>
+                <Text style={{ fontSize: 16 }}>{label}</Text>
                 <Text style={{ color: !latest ? colors.text3 : ok ? colors.text : colors.crit, fontSize: ok ? 20 : 15, fontWeight: ok ? '300' : '500' }}>
                   {!latest ? '—' : ok ? `${reading!.temp!.toFixed(1)}°` : 'No signal'}
                 </Text>
               </View>
               {latest && !ok && (
-                <Text style={[styles.muted, { marginTop: 4, marginLeft: 19 }]}>
+                <Text style={[styles.muted, { marginTop: 4 }]}>
                   {STATUS_TEXT[reading?.status ?? 'missing'] ?? reading?.status}{fault?.recommendations?.[0] ? ` · ${fault.recommendations[0]}` : ''}
                 </Text>
               )}

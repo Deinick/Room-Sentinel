@@ -1,12 +1,14 @@
-// All your devices, with the room temperature of each. "+" adds another one.
+// All your devices, with the room temperature of each. Gear: settings. "+": add another device.
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 
 import { SignedIn } from '@/components/Gate';
-import { ADD_DEVICE_STEPS, Button, Card, Message, Pill, Steps, styles } from '@/components/ui';
+import { Text } from '@/components/Text';
+import { ADD_DEVICE_STEPS, Button, Card, Message, Status, Steps, styles } from '@/components/ui';
 import type { Device, Issue, Latest } from '@/lib/api';
-import { roomStatus, roomTemperature, tempColor } from '@/lib/room';
+import { roomStatus, roomTemperature } from '@/lib/room';
 import { useSession } from '@/lib/session';
 import { colors } from '@/lib/theme';
 
@@ -14,8 +16,16 @@ export default function DevicesScreen() {
   return <SignedIn><Devices /></SignedIn>;
 }
 
+function HeaderIcon({ name, label, onPress }: { name: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={12} accessibilityLabel={label} accessibilityRole="button" style={{ padding: 4 }}>
+      <Ionicons name={name} size={24} color={colors.text} />
+    </Pressable>
+  );
+}
+
 function Devices() {
-  const { api, guard, session, signOut } = useSession();
+  const { api, guard } = useSession();
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [latest, setLatest] = useState<Record<string, Latest>>({});
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -44,12 +54,8 @@ function Devices() {
   const header = (
     <Stack.Screen
       options={{
-        headerRight: () => (
-          <Pressable onPress={() => router.push('/add')} hitSlop={12} accessibilityLabel="Add a device"
-            style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: colors.cardStrong, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: colors.text, fontSize: 24, lineHeight: 26, fontWeight: '300' }}>+</Text>
-          </Pressable>
-        ),
+        headerLeft: () => <HeaderIcon name="settings-outline" label="Settings" onPress={() => router.push('/settings')} />,
+        headerRight: () => <HeaderIcon name="add" label="Add a device" onPress={() => router.push('/add')} />,
       }}
     />
   );
@@ -65,7 +71,6 @@ function Devices() {
           <Button title="Scan the QR code" onPress={() => router.push('/add')} />
         </Card>
         <Message text={error} error />
-        <Footer email={session?.email} onSignOut={signOut} />
       </View>
     );
   }
@@ -88,28 +93,19 @@ function Devices() {
               style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
               <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: colors.text, fontSize: 18, fontWeight: '600' }} numberOfLines={1}>{item.name || 'Unnamed device'}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '500' }} numberOfLines={1}>{item.name || 'Unnamed device'}</Text>
                   <Text style={[styles.muted, { marginTop: 3 }]}>{item.device_id}</Text>
-                  <View style={{ flexDirection: 'row', marginTop: 10 }}><Pill label={status.label} color={status.color} /></View>
+                  <View style={{ marginTop: 10 }}><Status label={status.label} color={status.color} /></View>
                 </View>
-                <Text style={{ color: temp == null ? colors.text3 : tempColor(temp, item.target_temperature ?? 21), fontSize: 36, fontWeight: '200' }}>
+                <Text style={{ color: temp == null ? colors.text3 : colors.text, fontSize: 36, fontWeight: '300' }}>
                   {temp == null ? '--' : temp.toFixed(1)}<Text style={{ fontSize: 16, color: colors.text2 }}>°C</Text>
                 </Text>
               </Card>
             </Pressable>
           );
         }}
-        ListFooterComponent={<><Message text={error} error /><Footer email={session?.email} onSignOut={signOut} /></>}
+        ListFooterComponent={<Message text={error} error />}
       />
-    </View>
-  );
-}
-
-function Footer({ email, onSignOut }: { email?: string; onSignOut: () => void }) {
-  return (
-    <View style={{ marginTop: 24, alignItems: 'center', gap: 6 }}>
-      <Text style={styles.muted}>Signed in as {email}</Text>
-      <Pressable onPress={onSignOut} hitSlop={10}><Text style={{ color: colors.accent, fontSize: 14 }}>Sign out</Text></Pressable>
     </View>
   );
 }

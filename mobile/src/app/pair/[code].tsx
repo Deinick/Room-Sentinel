@@ -2,9 +2,10 @@
 // Also opens from a link: roomsentinel://pair/CODE
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 
 import { SignedIn } from '@/components/Gate';
+import { Text } from '@/components/Text';
 import { Button, Card, Eyebrow, Field, Message, styles } from '@/components/ui';
 import { ApiError } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -85,7 +86,7 @@ function Pair() {
             <Text style={styles.h1}>Pair this device?</Text>
             <Card style={{ marginTop: 18, alignItems: 'center' }}>
               <Text style={[styles.muted, { letterSpacing: 2 }]}>SERIAL NUMBER</Text>
-              <Text style={{ color: colors.text, fontSize: 28, fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }), marginVertical: 8 }}>{serial || '—'}</Text>
+              <Text style={{ color: colors.text, fontSize: 28, letterSpacing: 1.5, marginVertical: 8 }}>{serial || '—'}</Text>
               <Text style={[styles.sub, { textAlign: 'center', marginTop: 0 }]}>Check that it matches the label on your device.</Text>
             </Card>
             <Message text={error} error />
@@ -107,9 +108,9 @@ function Pair() {
             <Text style={styles.sub}>{serial} is on your account. What room is it in?</Text>
             <Card style={{ marginTop: 18 }}>
               <Field label="Name" value={name} onChangeText={setName} placeholder="e.g. Living room" autoCapitalize="words" maxLength={100} autoFocus />
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', columnGap: 18, rowGap: 8, marginTop: 12 }}>
                 {['Living room', 'Bedroom', 'Office', 'Kitchen'].map(s => (
-                  <Text key={s} onPress={() => setName(s)} style={{ color: colors.text2, borderWidth: 1, borderColor: colors.line, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6, overflow: 'hidden' }}>{s}</Text>
+                  <Text key={s} onPress={() => setName(s)} style={{ color: name === s ? colors.text : colors.accent, fontSize: 15 }}>{s}</Text>
                 ))}
               </View>
               <Message text={error} error />

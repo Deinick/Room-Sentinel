@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Room Sentinel</title>
   <meta name="description" content="Live 3D view of a room's temperature, with alerts, forecasts and a simulated demo mode.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Ranade (Indian Type Foundry), free on Fontshare -->
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=ranade@100,300,400,500,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
   <script type="importmap">
@@ -20,6 +20,7 @@
   </script>
 </head>
 <body class="ui-hidden">
+  <canvas id="bg" aria-hidden="true"></canvas>
   <div id="scene" aria-label="3D view of the room. Drag to rotate, scroll or pinch to zoom."></div>
 
   <!-- Loading -->
@@ -317,6 +318,7 @@
 
   <footer class="credit">Room model “room” by <a href="https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713" target="_blank" rel="noopener">yYett</a>, CC BY 4.0 · colours between sensors are estimated</footer>
 
+  <script type="module" src="js/background.js"></script>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

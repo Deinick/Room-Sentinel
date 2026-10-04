@@ -100,6 +100,7 @@ export function createApi(baseUrl: string, getToken: () => string | null) {
       return result.access_token;
     },
     me: (token?: string) => request<User>('/users/me', 'GET', undefined, token ?? getToken()),
+    changePassword: (token: string, password: string) => request<User>('/users/me', 'PUT', { password1: password, password2: password }, token),
 
     devices: () => request<Device[]>('/devices'),
     updateDevice: (id: string, changes: Partial<Device>) => request<Device>(`/devices/${encodeURIComponent(id)}`, 'PATCH', changes),

@@ -244,7 +244,7 @@ function renderSensors() {
     const ok = s.status === 'ok' && t != null;
     return `<button class="sensor-card" data-sensor="${name}">
       <div class="sensor-top"><span class="sensor-name">${SENSORS[name].label}</span><span class="sensor-temp" style="color:${ok ? cssColor(t, target) : 'var(--crit)'}">${ok ? `${t.toFixed(1)}°` : '—'}</span></div>
-      <div class="sensor-meta"><span><i class="dot ${ok ? '' : 'bad'}"></i>${ok ? 'Reporting' : s.status.replace('_', ' ')}</span><span>${SENSORS[name].note}</span></div>
+      <div class="sensor-meta"><span class="${ok ? '' : 'bad'}">${ok ? 'Reporting' : s.status.replace('_', ' ')}</span><span>${SENSORS[name].note}</span></div>
     </button>`;
   }).join('');
   $('sensor-list').querySelectorAll('.sensor-card').forEach(c => c.addEventListener('click', () => { scene.flyToSensor(c.dataset.sensor); highlightSensor(c.dataset.sensor); }));
@@ -359,7 +359,7 @@ function drawTemps(points) {
   const lines = names.map(n => `<path d="${path(points.map((p, i) => ({ t: times[i], v: p[n] })), x, y)}" fill="none" stroke="${SENSOR_COLORS[n]}" stroke-width="${n === 'Centre' ? 2 : 1.3}" stroke-linejoin="round" opacity=".95"/>`).join('');
   const targetLine = target >= sc.lo && target <= sc.hi ? `<line x1="${L}" x2="${W}" y1="${y(target)}" y2="${y(target)}" stroke="rgba(255,255,255,.35)" stroke-dasharray="3 4"/>` : '';
   svg.innerHTML = grid + targetLine + lines;
-  $('chart-legend').innerHTML = names.map(n => `<span><i style="background:${SENSOR_COLORS[n]}"></i>${SENSORS[n].label}</span>`).join('');
+  $('chart-legend').innerHTML = names.map(n => `<span style="color:${SENSOR_COLORS[n]}">${SENSORS[n].label}</span>`).join('');
 }
 
 function drawRates(series) {
@@ -378,8 +378,8 @@ function drawRates(series) {
     <text x="0" y="${y(sc.hi) + 3}">${sc.hi.toFixed(2)}</text><text x="0" y="${y(sc.lo) + 3}">${sc.lo.toFixed(2)}</text>
     <path d="${path(toPts(expected), x, y)}" fill="none" stroke="#7cc4ff" stroke-width="1.4" stroke-dasharray="4 3"/>
     <path d="${path(toPts(measured), x, y)}" fill="none" stroke="#e8eef6" stroke-width="1.8"/>`;
-  $('rate-legend').innerHTML = '<span><i style="background:#e8eef6"></i>Measured (°C/min)</span>' +
-    (expected.length ? '<span><i style="background:#7cc4ff"></i>Expected for this room</span>' : '<span class="muted">Expected rate comes from the backend detector</span>');
+  $('rate-legend').innerHTML = '<span style="color:#e8eef6">Measured (°C/min)</span>' +
+    (expected.length ? '<span style="color:#7cc4ff">Expected for this room (dashed)</span>' : '<span class="muted">Expected rate comes from the backend detector</span>');
 }
 
 // ------------------------------------------------------------------ layers

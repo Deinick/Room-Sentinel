@@ -5,7 +5,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 import { ROOM, WINDOW, DOOR, HEATER, HIDDEN_NODES, SENSORS, CAMERA_PRESETS } from './layout.js';
-import { GLSL, MAX_SOURCES, buildSources, colorFor, cssColor, sample, writeUniforms } from './field.js';
+import { GLSL, MAX_SOURCES, buildSources, colorFor, sample, writeUniforms } from './field.js';
 
 const gsap = window.gsap;
 const SMALL_SCREEN = matchMedia('(max-width: 820px)').matches;
@@ -471,7 +471,7 @@ export class RoomScene {
       ring.scale.setScalar(0.5);
       const el = document.createElement('div');
       el.className = 'label3d';
-      el.innerHTML = `<div class="pill"><span class="swatch"></span><span class="lname">${info.label}</span><span class="lvalue">—</span></div>`;
+      el.innerHTML = `<div class="pill"><span class="lname">${info.label}</span><span class="lvalue">—</span></div>`;
       el.addEventListener('click', () => this.onSensorClick?.(name));
       const label = new CSS2DObject(el);
       label.position.set(0, 0.06, 0);
@@ -506,7 +506,6 @@ export class RoomScene {
       const bad = t == null;
       s.el.classList.toggle('bad', bad);
       s.el.querySelector('.lvalue').textContent = bad ? 'No signal' : `${t.toFixed(1)}°`;
-      s.el.querySelector('.swatch').style.color = s.el.querySelector('.swatch').style.background = bad ? '#ff7a6b' : cssColor(t, this.target);
     }
   }
 

@@ -7,7 +7,7 @@
 // the wall with the window and door at the top, the open side of the model at the bottom.
 
 import { ROOM, WINDOW, DOOR, HEATER, SENSORS } from './layout.js';
-import { colorFor, cssColor, sample } from './field.js';
+import { colorFor, sample } from './field.js';
 
 const LEN_Z = ROOM.max.z - ROOM.min.z; // 7.34 m, horizontal on screen
 const LEN_X = ROOM.max.x - ROOM.min.x; // 4.0 m, vertical on screen
@@ -72,7 +72,6 @@ export class PlanView {
       const t = temps[name];
       m.el.classList.toggle('bad', t == null);
       m.value.textContent = t == null ? 'No signal' : `${t.toFixed(1)}°`;
-      m.dot.style.color = m.dot.style.background = t == null ? '#ff7a6b' : cssColor(t, target);
       this._place(name);
     }
   }
@@ -112,7 +111,7 @@ export class PlanView {
         <path d="M${d0} 4 A ${d1 - d0} ${d1 - d0} 0 0 0 ${d1} ${d1 - d0 + 4}" stroke="rgba(255,255,255,.35)" stroke-width="2.5" stroke-dasharray="6 6"/>
         <rect x="3" y="${hy - 22}" width="14" height="44" rx="4" fill="#ff8a3d" opacity=".9"/>
       </g>
-      <g font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="rgba(238,243,249,.62)" letter-spacing="1.6">
+      <g font-family="Ranade, sans-serif" font-size="11" font-weight="600" fill="rgba(238,243,249,.62)" letter-spacing="1.6">
         <text x="${(w0 + w1) / 2}" y="24" text-anchor="middle">WINDOW</text>
         <text x="${(d0 + d1) / 2}" y="24" text-anchor="middle">DOOR</text>
         <text x="26" y="${hy + 4}">HEATER</text>

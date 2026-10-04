@@ -2,7 +2,7 @@ import { RoomScene } from './scene.js';
 import { PreviewSource } from './preview.js';
 import { BackendSource } from './backend.js';
 import { PlanView } from './plan.js';
-import { ApiError, DEFAULT_API, PASSWORD_RULE, accountApi, validEmail, validPassword } from './account.js';
+import { ApiError, DEFAULT_API, PASSWORD_RULE, accountApi, pairingCodeFromUrl, validEmail, validPassword } from './account.js';
 import { AMBIENT, SENSORS, SENSOR_NAMES } from './layout.js';
 import { COLOR_SPAN, cssColor } from './field.js';
 
@@ -77,7 +77,7 @@ const plan = new PlanView({
   if (params.has('window')) source.setControls({ window: params.get('window') });
   if (params.has('scenario')) source.startScenario(params.get('scenario'));
   const storyLink = ['offline', 'outside', 'window', 'scenario', 'view', 'panel', 'plan'].some(k => params.has(k));
-  if (storyLink) {
+  if (storyLink && !pendingCode) {
     enterApp(params.get('view') || 'overview');
     if (params.has('panel')) setTimeout(() => openPanel(params.get('panel')), 1200);
     if (params.has('plan')) setTimeout(() => setDimension('2d'), 900);
@@ -157,14 +157,25 @@ function renderUi(room) {
   $('hud-temp').textContent = room == null ? '--.-' : room.toFixed(1);
   const rate = trendPerMinute();
   const trend = $('hud-trend');
-  if (rate == null) { trend.textContent = 'Measuring…'; trend.className = 'trend'; }
+  if (state.waiting) { trend.textContent = '—'; trend.className = 'trend'; }
+  else if (rate == null) { trend.textContent = 'Measuring…'; trend.className = 'trend'; }
   else if (Math.abs(rate) < 0.01) { trend.textContent = 'Stable'; trend.className = 'trend'; }
   else { trend.textContent = `${rate > 0 ? '↑ +' : '↓ '}${rate.toFixed(2)} °C/min`; trend.className = `trend ${rate > 0 ? 'up' : 'down'}`; }
 
   const issues = state.issues || [];
   const serious = issues.filter(i => i.severity !== 'INFO');
   const status = $('hud-status');
-  if (!state.live) { status.textContent = 'Offline'; status.className = 'status warn'; }
+  const note = $('hud-note');
+  if (state.waiting) {
+    note.textContent = `Waiting for ${source.deviceName()} to send readings. Check that it's powered and on Wi-Fi.`;
+    note.dataset.action = 'devices';
+  } else if (account && !account.devices.length) {
+    note.textContent = 'This is the demo room. Pair a device to see your own →';
+    note.dataset.action = 'devices';
+  } else note.textContent = '';
+  note.hidden = !note.textContent;
+  if (state.waiting) { status.textContent = 'Waiting'; status.className = 'status warn'; }
+  else if (!state.live) { status.textContent = 'Offline'; status.className = 'status warn'; }
   else if (serious.some(i => i.severity === 'CRITICAL')) { status.textContent = 'Critical'; status.className = 'status crit'; }
   else if (serious.length) { status.textContent = 'Warning'; status.className = 'status warn'; }
   else { status.textContent = 'Normal'; status.className = 'status ok'; }
@@ -453,29 +464,45 @@ function syncControls() {
   }
 }
 
-// ------------------------------------------------------------------ sign in (ported from the first website)
+// ------------------------------------------------------------------ gates: sign in, add a first device, pair
+// Full-screen glass cards over the room. The flow:
+//   not signed in            -> sign in / create account
+//   signed in, QR link open  -> "Pair this device?" (…/room-view/#pair/CODE, from the device's QR code)
+//   signed in, no devices    -> how to add one (waits for it), or explore the demo room
+//   signed in, has devices   -> the room
 
+const GATES = ['auth', 'onboard', 'pairing'];
 let authMode = 'login';
+let pendingCode = pairingCodeFromUrl();
+let watchTimer = null;
+let expiryTimer = null;
 $('auth-api').value = store.get('api-url') || DEFAULT_API;
 $('auth-email').value = store.get('api-email') || '';
 
-function showAuth(notice = '') {
+function showGate(id) {
   document.body.classList.add('signing-in', 'ui-hidden');
   closePanel();
   setDimension('3d');
-  const el = $('auth');
-  el.hidden = false;
-  setAuthMode('login');
-  authMessage(notice, false);
+  for (const g of GATES) { $(g).hidden = g !== id; $(g).classList.remove('leaving'); }
   scene.flyTo('overview', 2.4);
   scene.setLayers({ rotate: true });
+}
+
+function showAuth(notice = '') {
+  showGate('auth');
+  setAuthMode('login');
+  authMessage(notice || (pendingCode ? 'Sign in, or create an account, to add your device.' : ''), false);
   setTimeout(() => ($('auth-email').value ? $('auth-password') : $('auth-email')).focus({ preventScroll: true }), 400);
 }
 
 function enterApp(view = 'overview') {
-  const el = $('auth');
-  el.classList.add('leaving');
-  setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 550);
+  for (const g of GATES) {
+    const el = $(g);
+    if (el.hidden) continue;
+    el.classList.add('leaving');
+    setTimeout(() => { el.hidden = true; el.classList.remove('leaving'); }, 550);
+  }
+  clearInterval(expiryTimer);
   document.body.classList.remove('signing-in', 'ui-hidden');
   applyLayers(); // back to the user's own auto-rotate setting
   scene.flyTo(view, 2.4);
@@ -500,7 +527,7 @@ function authMessage(text, isError) {
   $(isError ? 'auth-notice' : 'auth-error').hidden = true;
   el.textContent = text;
   el.hidden = !text;
-  if (text && isError) gsap.fromTo('.auth-card', { x: -6 }, { x: 0, duration: 0.5, ease: 'elastic.out(1, 0.35)' });
+  if (text && isError) gsap.fromTo('#auth .auth-card', { x: -6 }, { x: 0, duration: 0.5, ease: 'elastic.out(1, 0.35)' });
 }
 
 $('auth-mode').addEventListener('click', () => setAuthMode(authMode === 'login' ? 'register' : 'login'));
@@ -540,7 +567,6 @@ $('auth-form').addEventListener('submit', async e => {
       store.set('api-email', user.email);
       $('auth-password').value = '';
       await startSession(api, token, user.email);
-      enterApp();
     }
   } catch (err) {
     authMessage(err.message || 'Could not complete the request.', true);
@@ -549,34 +575,179 @@ $('auth-form').addEventListener('submit', async e => {
   }
 });
 
-/** Signed in: switch to live data from the API (or the offline demo if no room sends data yet). */
+/** Signed in: load the account's devices, then go wherever the flow says. */
 async function startSession(api, token, email) {
-  account = { api, token, email };
+  account = { api, token, email, devices: [] };
   session.set('token', token);
   session.set('api', api.base);
   session.set('email', email);
-  const backend = new BackendSource(api.base);
+  await loadDevices();
+  renderAccount();
+  await route();
+}
+
+async function loadDevices() {
+  account.devices = await account.api.devices(account.token);
+  renderDevices();
+}
+
+async function route(preferred = null) {
+  if (pendingCode) return showPairing(pendingCode);
+  if (!account.devices.length) return showOnboarding();
+  stopWatching();
+  await connectRooms({ preferred });
+  enterApp();
+}
+
+/** Live data for the account's devices, or the shared demo room. */
+async function connectRooms({ demo = false, preferred = null } = {}) {
+  const backend = new BackendSource(account.api.base);
   try {
-    await backend.connect(token);
+    await backend.connect(account.token, { owned: account.devices, demo, preferred });
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) throw e;
+    if (e instanceof ApiError && e.status === 401) return signOut('Your session has expired. Please sign in again.');
     backend.devices = [];
-    setStatus(`Signed in, but room data isn't available (${e.message}). Showing the offline demo.`);
+    setStatus(`Room data isn't available right now (${e.message}).`);
   }
   if (backend.devices.length) {
     source = backend;
     state = source.state();
-    setStatus(`Connected · ${backend.devices.length} room(s).`);
+    setStatus(demo ? 'This is the shared demo room.' : `Connected · ${backend.devices.length} device(s).`);
   } else {
-    if (source.kind !== 'preview') source = new PreviewSource();
-    if (!$('connect-status').textContent.startsWith('Signed in')) setStatus('Signed in. No room is sending data to your account yet, so this is the offline demo.');
+    usePreview(); // asked for the demo, but the server has none: the offline demo instead
   }
   resetView();
   fillDevices();
   fillScenarios();
   setMode();
   renderAccount();
+  renderDevices();
 }
+
+// ------------------------------------------------------------------ no device yet
+
+function showOnboarding() {
+  showGate('onboard');
+  $('onboard-email').textContent = `Signed in as ${account.email}`;
+  watchForDevices();
+}
+
+/** Checks every few seconds whether a device got paired (on the phone, or in another tab). */
+function watchForDevices() {
+  stopWatching();
+  watchTimer = setInterval(async () => {
+    if (!account) return stopWatching();
+    try {
+      const list = await account.api.devices(account.token);
+      if (!list.length) return;
+      account.devices = list;
+      stopWatching();
+      await connectRooms({ preferred: list[0].device_id });
+      enterApp();
+      toast({ kind: 'DEVICE_PAIRED', severity: 'INFO', message: `${list[0].name || list[0].device_id} is now on your account.`, recommendations: ['Readings appear as soon as it connects.'] }, true);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) signOut('Your session has expired. Please sign in again.');
+    }
+  }, 5000);
+}
+function stopWatching() { clearInterval(watchTimer); watchTimer = null; }
+
+$('onboard-demo').addEventListener('click', async () => {
+  await connectRooms({ demo: true });
+  enterApp();
+  watchForDevices(); // keep an eye out: pairing on the phone switches to the real room
+});
+$('onboard-signout').addEventListener('click', () => signOut(''));
+
+// ------------------------------------------------------------------ pairing (QR link from the device)
+
+function pairMessage(text, isError = false) {
+  const el = $('pair-msg');
+  el.textContent = text;
+  el.className = `form-msg${isError ? ' error' : ''}`;
+  el.hidden = !text;
+}
+
+async function showPairing(code) {
+  showGate('pairing');
+  stopWatching();
+  $('pair-email').textContent = `Signed in as ${account.email}`;
+  $('pair-title').textContent = 'Pair this device?';
+  $('pair-serial').textContent = '…';
+  $('pair-confirm').disabled = true;
+  $('pair-confirm').textContent = 'Pair device';
+  $('pair-expiry').textContent = '';
+  pairMessage('Checking the code…');
+  try {
+    const info = await account.api.pairingInfo(account.token, code);
+    $('pair-serial').textContent = info.device_id;
+    pairMessage('');
+    $('pair-confirm').disabled = false;
+    startExpiry(new Date(info.expires_at));
+  } catch (e) {
+    $('pair-serial').textContent = '—';
+    if (e instanceof ApiError && e.status === 401) return signOut('Your session has expired. Please sign in again.');
+    pairMessage(pairingError(e), true);
+  }
+}
+
+function pairingError(e) {
+  if (e.status === 410) return 'This code has expired. On the device, open Account Login again for a new QR code.';
+  if (e.status === 404) return 'This code was already used, or doesn\'t exist. On the device, open Account Login again.';
+  return e.message;
+}
+
+function startExpiry(expires) {
+  clearInterval(expiryTimer);
+  const tick = () => {
+    const left = Math.max(0, Math.round((expires - Date.now()) / 1000));
+    $('pair-expiry').textContent = left ? `Code valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '';
+    if (!left) {
+      clearInterval(expiryTimer);
+      $('pair-confirm').disabled = true;
+      pairMessage('This code has expired. On the device, open Account Login again for a new QR code.', true);
+    }
+  };
+  tick();
+  expiryTimer = setInterval(tick, 1000);
+}
+
+function clearPendingCode() {
+  pendingCode = null;
+  if (location.hash.startsWith('#pair/') || new URLSearchParams(location.search).has('pair')) {
+    const params = new URLSearchParams(location.search);
+    params.delete('pair');
+    history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
+  }
+}
+
+$('pair-confirm').addEventListener('click', async () => {
+  const code = pendingCode, serial = $('pair-serial').textContent;
+  $('pair-confirm').disabled = true;
+  pairMessage('Pairing…');
+  try {
+    await account.api.confirmPairing(account.token, code);
+    clearInterval(expiryTimer);
+    clearPendingCode();
+    $('pair-title').textContent = 'Paired';
+    $('pair-expiry').textContent = '';
+    pairMessage('Your device is on your account. It connects by itself in a few seconds.');
+    await loadDevices();
+    setTimeout(() => route(serial), 1400);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return signOut('Your session has expired. Please sign in again.');
+    pairMessage(pairingError(e), true);
+  }
+});
+$('pair-cancel').addEventListener('click', () => { clearInterval(expiryTimer); clearPendingCode(); route(); });
+
+// Opening another QR link in the same tab
+window.addEventListener('hashchange', () => {
+  const code = pairingCodeFromUrl();
+  if (!code) return;
+  pendingCode = code;
+  account ? showPairing(code) : showAuth();
+});
 
 /** Back in the same tab: reuse the token if the server still accepts it. */
 async function resumeSession() {
@@ -586,7 +757,6 @@ async function resumeSession() {
     const api = accountApi(base);
     const user = await api.currentUser(token);
     await startSession(api, token, user.email);
-    enterApp();
     return true;
   } catch {
     session.set('token', null);
@@ -596,9 +766,12 @@ async function resumeSession() {
 
 function signOut(notice = '', showScreen = true) {
   account = null;
+  stopWatching();
+  clearInterval(expiryTimer);
   session.set('token', null);
   usePreview();
   renderAccount();
+  renderDevices();
   if (showScreen) showAuth(notice);
 }
 
@@ -668,13 +841,102 @@ $('delete-yes').addEventListener('click', async () => {
 function fillDevices() {
   const devices = source.kind === 'backend' ? source.devices : [];
   $('device-field').hidden = devices.length < 2;
-  $('device-select').innerHTML = devices.map(d => `<option value="${d.id}" ${d.id === source.deviceId ? 'selected' : ''}>${d.id}${d.mode === 'demo' ? ' · simulated' : ''}</option>`).join('');
+  $('device-select').innerHTML = devices.map(d => `<option value="${escapeHtml(d.id)}" ${d.id === source.deviceId ? 'selected' : ''}>${escapeHtml(d.name)}${d.mode === 'demo' ? ' · simulated' : ''}</option>`).join('');
 }
-$('device-select').addEventListener('change', async e => {
-  source.deviceId = e.target.value;
+$('device-select').addEventListener('change', e => showDevice(e.target.value));
+
+async function showDevice(id) {
+  if (source.kind !== 'backend') return;
+  source.deviceId = id;
   resetView();
   await poll();
+  fillDevices();
   setMode();
+  renderDevices();
+}
+
+$('hud-note').addEventListener('click', () => openPanel('devices'));
+
+// ------------------------------------------------------------------ devices panel (rename, limits, unpair)
+
+function renderDevices() {
+  const list = $('device-cards');
+  if (!account) {
+    $('devices-sub').textContent = 'Sign in to see and manage your devices.';
+    list.innerHTML = '';
+    return;
+  }
+  const devices = account.devices || [];
+  $('devices-sub').textContent = devices.length ? `Paired to ${account.email}.` : 'No device on your account yet. Add one below.';
+  const value = v => (v == null ? '' : v);
+  list.innerHTML = devices.map(d => `
+    <div class="device-card ${source.kind === 'backend' && source.deviceId === d.device_id ? 'current' : ''}" data-id="${escapeHtml(d.device_id)}">
+      <div class="device-top"><b>${escapeHtml(d.name || 'Unnamed device')}</b><span class="device-serial">${escapeHtml(d.device_id)}</span></div>
+      <label class="input"><span>Name</span><input data-f="name" maxlength="100" value="${escapeHtml(value(d.name))}" placeholder="e.g. Living room"></label>
+      <div class="device-limits">
+        <label class="input"><span>Min °C</span><input data-f="min_temperature" type="number" step="0.5" value="${value(d.min_temperature)}"></label>
+        <label class="input"><span>Target °C</span><input data-f="target_temperature" type="number" step="0.5" value="${value(d.target_temperature)}"></label>
+        <label class="input"><span>Max °C</span><input data-f="max_temperature" type="number" step="0.5" value="${value(d.max_temperature)}"></label>
+      </div>
+      <div class="device-actions">
+        <button class="ghost" data-act="show">Show</button>
+        <button class="ghost" data-act="save">Save</button>
+        <button class="ghost danger" data-act="unpair">Unpair</button>
+      </div>
+      <p class="form-msg" hidden></p>
+    </div>`).join('');
+}
+
+$('device-cards').addEventListener('click', async e => {
+  const button = e.target.closest('button[data-act]');
+  if (!button || !account) return;
+  const card = button.closest('.device-card');
+  const id = card.dataset.id;
+  const device = account.devices.find(d => d.device_id === id);
+  const msg = (text, isError) => { const p = card.querySelector('.form-msg'); p.textContent = text; p.className = `form-msg${isError ? ' error' : ''}`; p.hidden = !text; };
+  try {
+    if (button.dataset.act === 'show') {
+      if (source.kind !== 'backend' || !source.devices.some(d => d.id === id)) await connectRooms({ preferred: id });
+      else await showDevice(id);
+      closePanel();
+    } else if (button.dataset.act === 'save') {
+      const changes = {};
+      for (const input of card.querySelectorAll('input[data-f]')) {
+        const f = input.dataset.f, raw = input.value.trim();
+        const next = f === 'name' ? (raw || null) : (raw === '' ? null : Number(raw));
+        if (next !== (device[f] ?? null)) changes[f] = next;
+      }
+      if (changes.name === null) return msg('A device needs a name.', true);
+      const lo = changes.min_temperature !== undefined ? changes.min_temperature : device.min_temperature;
+      const hi = changes.max_temperature !== undefined ? changes.max_temperature : device.max_temperature;
+      if (lo != null && hi != null && lo >= hi) return msg('Min must be below max.', true);
+      if (!Object.keys(changes).length) return msg('Nothing changed.', false);
+      button.disabled = true;
+      const updated = await account.api.updateDevice(account.token, id, changes);
+      Object.assign(device, updated);
+      if (source.kind === 'backend') { const d = source.devices.find(x => x.id === id); if (d) d.name = updated.name || id; }
+      fillDevices();
+      setMode();
+      renderDevices();
+      setStatus(`Saved ${updated.name || id}.`);
+    } else if (button.dataset.act === 'unpair') {
+      if (!button.classList.contains('confirm')) {
+        button.classList.add('confirm');
+        button.textContent = 'Confirm unpair';
+        return msg('The device stops sending to your account. To use it again, pair it again from the device.', true);
+      }
+      button.disabled = true;
+      await account.api.unpairDevice(account.token, id);
+      await loadDevices();
+      closePanel();
+      await route();
+    }
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) return signOut('Your session has expired. Please sign in again.');
+    msg(err.message, true);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 // ------------------------------------------------------------------ 3D / 2D
@@ -730,9 +992,9 @@ function resetView() {
 function setMode() {
   const chip = $('mode-chip');
   const mode = source.kind === 'preview' ? 'preview' : (state?.mode === 'demo' ? 'demo' : 'live');
-  chip.textContent = { preview: 'Offline demo', demo: 'Simulated', live: 'Live' }[mode];
+  chip.textContent = { preview: 'Offline demo', demo: 'Demo room', live: 'Live' }[mode];
   chip.className = `chip ${mode}`;
-  $('device-name').textContent = source.kind === 'preview' ? (account ? account.email : 'offline room') : (source.deviceId || 'no device');
+  $('device-name').textContent = source.kind === 'preview' ? (account ? account.email : 'offline room') : (source.deviceName() || 'no device');
 }
 
 function setStatus(text) { $('connect-status').textContent = text; }

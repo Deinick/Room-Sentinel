@@ -60,5 +60,20 @@ export function accountApi(baseUrl) {
     currentUser: token => request('/users/me', 'GET', undefined, token),
     changePassword: (token, password) => request('/users/me', 'PUT', { password1: password, password2: password }, token),
     deleteAccount: token => request('/users/me', 'DELETE', undefined, token),
+
+    // Devices (docs/device-pairing.md): the user's side of pairing, and managing paired devices.
+    devices: token => request('/devices', 'GET', undefined, token),
+    pairingInfo: (token, code) => request(`/pairing/${encodeURIComponent(code)}`, 'GET', undefined, token),
+    confirmPairing: (token, code) => request(`/pairing/${encodeURIComponent(code)}/confirm`, 'POST', undefined, token),
+    updateDevice: (token, id, changes) => request(`/devices/${encodeURIComponent(id)}`, 'PATCH', changes, token),
+    unpairDevice: (token, id) => request(`/devices/${encodeURIComponent(id)}`, 'DELETE', undefined, token),
   };
+}
+
+/** The pairing code from a QR link: …/room-view/#pair/CODE (or ?pair=CODE). */
+export function pairingCodeFromUrl(loc = location) {
+  const hash = loc.hash.match(/^#pair\/([A-Za-z0-9_-]{6,})/);
+  if (hash) return hash[1];
+  const query = new URLSearchParams(loc.search).get('pair');
+  return query && /^[A-Za-z0-9_-]{6,}$/.test(query) ? query : null;
 }

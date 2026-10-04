@@ -33,15 +33,22 @@ export class BackendSource {
     return response.status === 204 ? null : response.json();
   }
 
-  /** Start with a token from the sign-in screen (account.js). */
-  async connect(token) {
+  /**
+   * Start with a token from the sign-in screen (account.js).
+   * owned: the account's paired devices (GET /devices). demo: show the shared demo room instead.
+   */
+  async connect(token, { owned = [], demo = false, preferred = null } = {}) {
     this.token = token;
     await this.refresh();
-    this.devices = Object.entries(this.latest).map(([id, r]) => ({ id, mode: r.mode }));
-    this.deviceId = (this.devices.find(d => d.mode === 'device') || this.devices[0] || {}).id || null;
+    const demos = Object.entries(this.latest).filter(([, r]) => r.mode === 'demo').map(([id]) => ({ id, name: 'Demo room', mode: 'demo' }));
+    const mine = owned.map(d => ({ id: d.device_id, name: d.name || d.device_id, mode: 'device', settings: d }));
+    this.devices = demo ? demos : mine;
+    this.deviceId = (this.devices.find(d => d.id === preferred) || this.devices[0] || {}).id || null;
     if (this.deviceId) await this.refresh(); // now that a device is chosen, also fetch its demo state
     try { this.scenarios = Object.keys(await this._fetch('/demo/scenarios')); } catch { this.scenarios = []; }
   }
+
+  deviceName(id = this.deviceId) { return this.devices.find(d => d.id === id)?.name || id; }
 
   async refresh() {
     const latest = await this._fetch('/latest');
@@ -53,8 +60,15 @@ export class BackendSource {
   }
 
   state() {
+    if (!this.deviceId) return null;
     const r = this.latest[this.deviceId];
-    if (!r) return null;
+    if (!r) {
+      // paired, but nothing received yet (just paired, unplugged, offline)
+      return {
+        deviceId: this.deviceId, mode: 'device', time: new Date(), waiting: true,
+        sensors: {}, issues: [], controls: null, heaterRunning: null, speed: 1, live: false,
+      };
+    }
     const sensors = Object.fromEntries(Object.entries(r.sensors).map(([n, v]) => [n, { temp: v.temp, status: v.status }]));
     return {
       deviceId: this.deviceId,

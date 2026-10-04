@@ -48,6 +48,7 @@
         <span id="hud-status" class="status ok">Normal</span>
       </div>
       <div id="hud-forecast" class="hud-forecast" hidden></div>
+      <button id="hud-note" class="hud-note" hidden></button>
     </div>
     <div class="hud-mini">
       <div class="mini glass"><div class="mini-label">Outside</div><div class="mini-value" id="hud-outside">—</div></div>
@@ -73,6 +74,9 @@
       <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
     </button>
     <div class="rail-sep"></div>
+    <button class="rail-btn" data-panel="devices" aria-label="Devices" title="Devices">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/><path d="M9 21v-6h6v6"/></svg>
+    </button>
     <button class="rail-btn" data-panel="account" aria-label="Account" title="Account">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
     </button>
@@ -125,6 +129,21 @@
       <div class="scale-labels"><span id="scale-lo">17°</span><span id="scale-mid">21°</span><span id="scale-hi">25°</span></div>
     </div>
     <p class="drawer-note">The colours between the sensors are estimated from five point measurements, with a small vertical gradient (warm air rises). The numbers at the sensors are measured.</p>
+  </aside>
+
+  <aside class="drawer glass" id="panel-devices" aria-label="Devices" hidden>
+    <div class="drawer-head"><h2>Devices</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub" id="devices-sub">Your paired Room Sentinels.</p>
+    <div id="device-cards" class="device-cards"></div>
+    <div class="add-device">
+      <div class="form-title">Add a device</div>
+      <ol class="steps small">
+        <li><b>On the device</b>, open Settings → Account Login. A QR code appears.</li>
+        <li><b>Scan it</b> with your phone, or open the link it shows.</li>
+        <li><b>Sign in</b> and confirm the serial number from the device's label.</li>
+      </ol>
+      <p class="drawer-note">The code on the device is valid for 10 minutes.</p>
+    </div>
   </aside>
 
   <aside class="drawer glass" id="panel-account" aria-label="Account" hidden>
@@ -191,8 +210,46 @@
     </div>
   </section>
 
+  <!-- Signed in, but no device paired yet -->
+  <section id="onboard" class="auth gate" aria-label="Add your first device" hidden>
+    <div class="auth-card glass">
+      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="onboard-email"></div></div></div>
+      <div class="auth-eyebrow">Almost there</div>
+      <h1>Add your first device</h1>
+      <p class="auth-sub">Your account has no Room Sentinel yet. Pairing takes about a minute:</p>
+      <ol class="steps">
+        <li><b>On the device</b>, open Settings → Account Login. A QR code appears on its screen.</li>
+        <li><b>Scan the QR code</b> with your phone camera, or open the link it shows.</li>
+        <li><b>Sign in</b> on the page that opens and confirm the serial number from the device's label.</li>
+      </ol>
+      <div class="waiting"><span class="spinner" aria-hidden="true"></span><span>Waiting for your device… this page continues by itself.</span></div>
+      <button class="primary" type="button" id="onboard-demo">Explore the demo room <span aria-hidden="true">→</span></button>
+      <div class="auth-switch">Not you? <button type="button" id="onboard-signout">Sign out</button></div>
+    </div>
+  </section>
+
+  <!-- Opened from the device's QR code: …/room-view/#pair/CODE -->
+  <section id="pairing" class="auth gate" aria-label="Pair a device" hidden>
+    <div class="auth-card glass">
+      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="pair-email"></div></div></div>
+      <div class="auth-eyebrow">New device</div>
+      <h1 id="pair-title">Pair this device?</h1>
+      <div class="serial-card">
+        <div class="serial-label">Serial number</div>
+        <div class="serial" id="pair-serial">…</div>
+        <div class="serial-hint">Check that it matches the label on your device.</div>
+      </div>
+      <p class="form-msg" id="pair-msg" hidden></p>
+      <div class="row-buttons wide-buttons">
+        <button class="primary" type="button" id="pair-confirm" disabled>Pair device</button>
+        <button class="ghost" type="button" id="pair-cancel">Not now</button>
+      </div>
+      <p class="auth-foot" id="pair-expiry"></p>
+    </div>
+  </section>
+
   <!-- Sign in / create account -->
-  <section id="auth" class="auth" aria-label="Sign in">
+  <section id="auth" class="auth gate" aria-label="Sign in">
     <div class="auth-card glass">
       <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub">Thermal guard for real rooms</div></div></div>
       <div class="auth-eyebrow">Your room, at a glance</div>

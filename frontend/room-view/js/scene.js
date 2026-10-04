@@ -39,6 +39,7 @@ const SURFACE_FRAGMENT = /* glsl */ `
   varying vec3 vWorld;
   varying vec2 vUv;
   void main() {
+    if (uCount == 0) discard; // no readings yet: no colours
     float t = fieldAt(vWorld);
     vec3 color = rampColor(t);
     float strength = clamp(abs(t - uTarget) / 4.0, 0.0, 1.0);
@@ -67,6 +68,7 @@ const HAZE_FRAGMENT = /* glsl */ `
     return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
   }
   void main() {
+    if (uCount == 0) discard;
     float t = fieldAt(vWorld);
     float strength = clamp(abs(t - uTarget) / 4.0, 0.0, 1.0);
     float n = noise(vWorld.xz * 1.6 + vec2(uTime * 0.05, uTime * 0.03)) * 0.6 + 0.4;

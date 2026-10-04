@@ -27,6 +27,21 @@ The page opens on a sign-in screen (create an account there too). Two ways in:
 
 The **Account** panel (person icon) changes the password, deletes the account or signs out.
 
+## Devices and pairing
+
+After signing in, the page checks the account's devices (`GET /devices`):
+
+- **No device yet**: "Add your first device" with the three steps, and "Explore the demo room". The page
+  checks every few seconds and switches to the real room as soon as a device is paired.
+- **QR link from the device** (`…/room-view/#pair/CODE`): sign in if needed, see the serial number,
+  confirm (`GET /pairing/{code}`, `POST /pairing/{code}/confirm`). Expired or used codes say what to do.
+- **Devices** panel (house icon): rename, min / target / max temperature, show, unpair.
+- A paired device that hasn't sent anything yet shows "Waiting for … to send readings".
+
+For the QR link to open this page, set the backend's `PAIRING_URL_BASE` to this page plus `#pair`,
+e.g. `http://localhost:8080/room-view/#pair` (the backend appends `/CODE`). The `#` keeps it working on any
+static server (nginx, `python3 -m http.server`).
+
 ## 3D and 2D
 
 The **3D | 2D** switch in the dock shows the room plan from above, drawn from the same estimated field.

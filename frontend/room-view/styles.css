@@ -287,7 +287,7 @@ body.ui-hidden [data-reveal], body.ui-hidden .credit { opacity: 0; translate: 0 
   display: flex; align-items: center; padding: 24px 0 24px clamp(20px, 7vw, 120px);
   background: linear-gradient(90deg, rgba(5,7,10,.72) 0%, rgba(5,7,10,.35) 38%, rgba(5,7,10,0) 62%);
 }
-.auth[hidden] { display: none; }
+.auth[hidden], .gate[hidden] { display: none; }
 .auth-card { animation: auth-in .9s var(--ease) .15s both; }
 .auth.leaving { transition: opacity .5s ease-in; opacity: 0; }
 .auth.leaving .auth-card { transition: translate .5s ease-in; translate: -24px 0; }
@@ -315,6 +315,39 @@ body.ui-hidden [data-reveal], body.ui-hidden .credit { opacity: 0; translate: 0 
 .form-msg { margin: 12px 0 0; font-size: 12.5px; color: var(--ok); }
 .form-msg.error { color: var(--crit); }
 .wide { width: 100%; padding: 10px 14px; border-radius: 14px; font-size: 13px; }
+
+/* ---------------------------------------------------------------- onboarding and pairing */
+.steps { margin: 4px 0 18px; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 12px; }
+.steps li { counter-increment: step; position: relative; padding-left: 40px; font-size: 13.5px; color: var(--text-2); line-height: 1.45; }
+.steps li b { color: var(--text); font-weight: 500; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: -2px; width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: #0b0f15; background: linear-gradient(140deg, #e8f3ff, #8cc0f0); box-shadow: inset 0 1px 0 #fff; }
+.steps.small li { font-size: 12.5px; padding-left: 34px; }
+.steps.small li::before { width: 22px; height: 22px; font-size: 11px; border-radius: 8px; }
+.waiting { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: var(--radius-s); background: rgba(255,255,255,.06); border: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(185,220,255,.25); border-top-color: var(--accent); animation: spin .9s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.serial-card { margin: 14px 0 6px; padding: 18px; border-radius: 18px; text-align: center; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+.serial-label { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-3); }
+.serial { margin: 6px 0; font: 500 26px var(--mono); letter-spacing: .06em; color: var(--text); word-break: break-all; }
+.serial-hint { font-size: 12px; color: var(--text-2); }
+.wide-buttons { margin-top: 18px; }
+.wide-buttons .primary { margin-top: 0; flex: 1; }
+.wide-buttons .ghost { padding: 12px 16px; border-radius: 14px; }
+.hud-note { display: block; width: 100%; margin-top: 12px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(185,220,255,.3); background: rgba(185,220,255,.1); color: var(--text); font-size: 12.5px; text-align: left; transition: background .3s; }
+.hud-note:hover { background: rgba(185,220,255,.18); }
+
+/* ---------------------------------------------------------------- devices panel */
+.device-cards { display: grid; gap: 12px; }
+.device-card { padding: 14px; border-radius: var(--radius-s); background: rgba(255,255,255,.06); border: 1px solid var(--line); }
+.device-card.current { border-color: rgba(185,220,255,.45); box-shadow: 0 0 0 1px rgba(185,220,255,.2) inset; }
+.device-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.device-serial { font: 11.5px var(--mono); color: var(--text-3); }
+.device-card .input { margin-top: 10px; }
+.device-limits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.device-limits .input span { font-size: 11px; }
+.device-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.add-device { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.add-device .steps { margin-top: 12px; }
 
 /* ---------------------------------------------------------------- account panel */
 .account-card { display: flex; align-items: center; gap: 12px; padding: 14px; margin-top: 6px; border-radius: var(--radius-s); background: rgba(255,255,255,.06); border: 1px solid var(--line); }

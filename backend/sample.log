@@ -1,0 +1,8 @@
+hello from stm32
+{"id":"room-101","Centre":21.44,"Window":19.81,"Heater":34.06,"Door":20.90,"Far wall":21.12}
+{"id":"room-101","Centre":21.50,"Window":19.75,"Heater":34.10,"Door":-127,"Far wall":21.12}
+
+{"id":"room-101","Centre":21.44,"Window":19.6
+{"id":"room-101","Centre":21.44,"Window":19.62,"Heater":85,"Far wall":21.06}
+{"Centre":21.44,"Window":19.62,"Heater":30.1,"Door":20.9,"Far wall":21.06}
+{"id":"room-202","Centre":18.20,"Window":15.10,"Heater":22.00,"Door":18.00,"Far wall":17.90}

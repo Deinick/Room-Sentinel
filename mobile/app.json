@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "Room Sentinel",
+    "slug": "room-sentinel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.deinick.room-sentinel"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#10151d",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Room Sentinel uses the camera to scan the QR code shown on your device.",
+          "barcodeScannerEnabled": true,
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-font"
+    ],
+    "scheme": "roomsentinel",
+    "backgroundColor": "#10151d"
+  }
+}

@@ -1,0 +1,5 @@
+# Only the room view (and its 3D model) is the website.
+react-app
+prototype.html
+main.ts
+room-view/scripts

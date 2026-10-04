@@ -1,0 +1,24 @@
+# docker-compose.override.yml
+#
+# Docker Compose automatically merges this file with docker-compose.yml
+# when you run `docker compose up` locally - no extra flags needed.
+#
+# This file MUST NOT be used in production. It mounts local source
+# directories into the container and runs uvicorn with --reload so code
+# changes are picked up without rebuilding the image.
+#
+# To generate a new migration after writing or changing a model:
+#
+#   docker compose exec fastapi alembic revision --autogenerate -m "your description"
+#
+# This creates a file under backend/alembic/versions/ on your host (via the mount).
+# Commit that file to version control. The next `docker compose up` will
+# apply it automatically via `alembic upgrade head` in entrypoint.sh.
+
+services:
+  fastapi:
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/alembic:/app/alembic
+      - ./backend/alembic.ini:/app/alembic.ini

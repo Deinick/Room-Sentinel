@@ -1,0 +1,24 @@
+services:
+  fastapi:
+    build:
+      context: ./backend
+    container_name: stormhacks_fastapi
+    # Loads the PG* vars (the Tiger Cloud database) and other settings
+    # from .env, see .env.example.
+    env_file:
+      - .env
+    ports:
+      - "${FASTAPI_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  # Static 3D room view (no build step). Open http://localhost:8080/room-view/
+  frontend:
+    image: nginx:1.27-alpine
+    container_name: stormhacks_frontend
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - fastapi
+    restart: unless-stopped

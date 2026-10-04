@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Room Sentinel</title>
+  <meta name="description" content="Live 3D view of a room's temperature, with alerts, forecasts and a simulated demo mode.">
+  <!-- Ranade (Indian Type Foundry), free on Fontshare -->
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+  <link href="https://api.fontshare.com/v2/css?f[]=ranade@100,300,400,500,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body class="ui-hidden">
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <div id="scene" aria-label="3D view of the room. Drag to rotate, scroll or pinch to zoom."></div>
+
+  <!-- Loading -->
+  <div id="loader" class="loader">
+    <div class="loader-mark">ROOM SENTINEL</div>
+    <div class="loader-bar"><span id="loader-progress"></span></div>
+    <div class="loader-text" id="loader-text">Loading the room…</div>
+  </div>
+
+  <!-- Top left: identity -->
+  <header class="brand glass" data-reveal>
+    <div class="brand-mark" aria-hidden="true"><span></span></div>
+    <div>
+      <div class="brand-name">Room Sentinel</div>
+      <div class="brand-sub"><span id="device-name">demo-101</span> · <span id="mode-chip" class="chip">Preview</span></div>
+    </div>
+  </header>
+
+  <!-- Top right: main metrics -->
+  <section class="hud" aria-label="Main metrics" data-reveal>
+    <div class="hud-main glass">
+      <div class="hud-label">Room temperature</div>
+      <div class="hud-temp"><span id="hud-temp">--.-</span><span class="hud-unit">°C</span></div>
+      <div class="hud-row">
+        <span id="hud-trend" class="trend">—</span>
+        <span id="hud-status" class="status ok">Normal</span>
+      </div>
+      <div id="hud-forecast" class="hud-forecast" hidden></div>
+      <button id="hud-note" class="hud-note" hidden></button>
+    </div>
+    <div class="hud-mini">
+      <div class="mini glass"><div class="mini-label">Outside</div><div class="mini-value" id="hud-outside">—</div></div>
+      <div class="mini glass"><div class="mini-label">Heater</div><div class="mini-value" id="hud-heater">—</div></div>
+      <div class="mini glass"><div class="mini-label">Sensors</div><div class="mini-value" id="hud-sensors">—</div></div>
+    </div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+  </section>
+
+  <!-- Left rail -->
+  <nav class="rail glass" aria-label="Panels" data-reveal>
+    <button class="rail-btn" data-panel="sensors" aria-label="Sensors" title="Sensors">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+    </button>
+    <button class="rail-btn" data-panel="insights" aria-label="Insights" title="Insights">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 16H3z"/><path d="M12 10v4M12 17h.01"/></svg>
+      <span class="rail-badge" id="insights-badge" hidden>0</span>
+    </button>
+    <button class="rail-btn" data-panel="history" aria-label="History" title="History">
+      <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 5-7 4 4"/><path d="M3 21h18"/></svg>
+    </button>
+    <button class="rail-btn" data-panel="layers" aria-label="Layers" title="Layers">
+      <svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg>
+    </button>
+    <div class="rail-sep"></div>
+    <button class="rail-btn" data-panel="devices" aria-label="Devices" title="Devices">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21H3z"/><path d="M9 21v-6h6v6"/></svg>
+    </button>
+    <button class="rail-btn" data-panel="account" aria-label="Account" title="Account">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+    </button>
+  </nav>
+
+  <!-- Drawers -->
+  <aside class="drawer glass" id="panel-sensors" aria-label="Sensors" hidden>
+    <div class="drawer-head"><h2>Sensors</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub">Five DS18B20 probes. Tap one to fly to it.</p>
+    <div id="sensor-list" class="sensor-list"></div>
+  </aside>
+
+  <aside class="drawer glass" id="panel-insights" aria-label="Insights" hidden>
+    <div class="drawer-head"><h2>Insights</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub" id="insights-sub">What the system has noticed, and what to do about it.</p>
+    <div id="issue-list" class="issue-list"></div>
+  </aside>
+
+  <aside class="drawer glass" id="panel-history" aria-label="History" hidden>
+    <div class="drawer-head"><h2>History</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <div class="segmented small" id="history-range">
+      <button data-minutes="10">10 min</button><button data-minutes="60" class="active">1 h</button><button data-minutes="360">6 h</button>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Temperatures</div>
+      <svg id="chart-temps" class="chart" viewBox="0 0 320 170" preserveAspectRatio="none"></svg>
+      <div class="chart-legend" id="chart-legend"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Cooling rate <span class="muted">· measured vs. expected</span></div>
+      <svg id="chart-rate" class="chart" viewBox="0 0 320 120" preserveAspectRatio="none"></svg>
+      <div class="chart-legend" id="rate-legend"></div>
+    </div>
+    <p class="drawer-note" id="history-note"></p>
+  </aside>
+
+  <aside class="drawer glass" id="panel-layers" aria-label="Layers" hidden>
+    <div class="drawer-head"><h2>Layers</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <label class="toggle"><input type="checkbox" id="layer-heatmap" checked><span></span>Surface heatmap</label>
+    <label class="toggle"><input type="checkbox" id="layer-air" checked><span></span>Air flow particles</label>
+    <label class="toggle"><input type="checkbox" id="layer-volume"><span></span>Volume haze</label>
+    <label class="toggle"><input type="checkbox" id="layer-labels" checked><span></span>Sensor labels</label>
+    <label class="toggle"><input type="checkbox" id="layer-rotate"><span></span>Slow auto-rotate</label>
+    <div class="field">
+      <div class="field-head"><span>Comfort target</span><b id="target-value">21.0 °C</b></div>
+      <input type="range" id="target" min="16" max="26" step="0.5" value="21">
+    </div>
+    <div class="scale">
+      <div class="scale-bar"></div>
+      <div class="scale-labels"><span id="scale-lo">17°</span><span id="scale-mid">21°</span><span id="scale-hi">25°</span></div>
+    </div>
+    <p class="drawer-note">The colours between the sensors are estimated from five point measurements, with a small vertical gradient (warm air rises). The numbers at the sensors are measured.</p>
+  </aside>
+
+  <aside class="drawer glass" id="panel-devices" aria-label="Devices" hidden>
+    <div class="drawer-head"><h2>Devices</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <p class="drawer-sub" id="devices-sub">Your paired Room Sentinels.</p>
+    <div id="device-cards" class="device-cards"></div>
+    <div class="add-device">
+      <div class="form-title">Add a device</div>
+      <ol class="steps small">
+        <li><b>On the device</b>, open Settings → Account Login. A QR code appears.</li>
+        <li><b>Scan it</b> with your phone, or open the link it shows.</li>
+        <li><b>Sign in</b> and confirm the serial number from the device's label.</li>
+      </ol>
+      <p class="drawer-note">The code on the device is valid for 10 minutes.</p>
+    </div>
+  </aside>
+
+  <aside class="drawer glass" id="panel-account" aria-label="Account" hidden>
+    <div class="drawer-head"><h2>Account</h2><button class="icon-btn" data-close aria-label="Close">×</button></div>
+    <div id="account-offline" hidden>
+      <p class="drawer-sub">You're exploring the offline demo: a small built-in room simulation. Its alerts are simple rules, not the real detector.</p>
+      <button class="primary" id="account-signin">Sign in or create an account</button>
+    </div>
+    <div id="account-online" hidden>
+      <div class="account-card">
+        <span class="avatar" id="account-avatar">RS</span>
+        <div><div class="account-email" id="account-email"></div><div class="account-server" id="account-server"></div></div>
+      </div>
+      <label class="input" id="device-field" hidden><span>Room</span><select id="device-select"></select></label>
+      <form class="account-form" id="password-form" novalidate>
+        <div class="form-title">Change password</div>
+        <label class="input"><span>Current password</span><input type="password" id="pw-current" autocomplete="current-password" maxlength="32"></label>
+        <label class="input"><span>New password</span><input type="password" id="pw-new" autocomplete="new-password" maxlength="32"></label>
+        <label class="input"><span>Confirm new password</span><input type="password" id="pw-confirm" autocomplete="new-password" maxlength="32"></label>
+        <p class="form-msg" id="pw-msg" hidden></p>
+        <button class="ghost wide" type="submit" id="pw-submit">Change password</button>
+      </form>
+      <div class="danger-zone">
+        <div class="form-title">Delete account</div>
+        <p class="drawer-note">Permanently deletes your account. You'll be signed out once the server confirms.</p>
+        <button class="ghost danger wide" id="delete-start">Delete account</button>
+        <div id="delete-confirm" hidden>
+          <p class="form-msg error">This cannot be undone.</p>
+          <div class="row-buttons"><button class="ghost danger" id="delete-yes">Delete permanently</button><button class="ghost" id="delete-no">Cancel</button></div>
+        </div>
+        <p class="form-msg error" id="delete-msg" hidden></p>
+      </div>
+      <button class="ghost wide signout" id="signout-btn">Sign out</button>
+    </div>
+    <p class="drawer-note" id="connect-status"></p>
+  </aside>
+
+  <!-- 2D plan (top view), the readable companion of the 3D room -->
+  <section id="plan" class="plan" hidden aria-label="Room plan, top view">
+    <div class="plan-card glass">
+      <div class="plan-head">
+        <div>
+          <h2>Room plan <span class="chip">Top view</span></h2>
+          <p class="plan-sub" id="plan-sub">4.0 × 7.3 m</p>
+        </div>
+        <div class="plan-actions">
+          <button class="ghost" id="plan-edit">Move sensors</button>
+          <button class="ghost" id="plan-reset" hidden>Reset positions</button>
+        </div>
+      </div>
+      <div class="plan-stage" id="plan-stage">
+        <div class="plan-floor" id="plan-floor">
+          <canvas id="plan-canvas"></canvas>
+          <svg class="plan-lines" id="plan-lines" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="plan-sensors" id="plan-sensors"></div>
+        <div class="plan-dim plan-dim-w" id="plan-dim-w">7.3 m</div>
+        <div class="plan-dim plan-dim-h" id="plan-dim-h">4.0 m</div>
+      </div>
+      <div class="plan-foot">
+        <div class="plan-legend"><span id="plan-lo">17°</span><i></i><span id="plan-hi">25°</span></div>
+        <span id="plan-note">Colours between the sensors are estimated · the numbers are measured</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Signed in, but no device paired yet -->
+  <section id="onboard" class="auth gate" aria-label="Add your first device" hidden>
+    <div class="auth-card glass">
+      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="onboard-email"></div></div></div>
+      <div class="auth-eyebrow">Almost there</div>
+      <h1>Add your first device</h1>
+      <p class="auth-sub">Your account has no Room Sentinel yet. Pairing takes about a minute:</p>
+      <ol class="steps">
+        <li><b>On the device</b>, open Settings → Account Login. A QR code appears on its screen.</li>
+        <li><b>Scan the QR code</b> with your phone camera, or open the link it shows.</li>
+        <li><b>Sign in</b> on the page that opens and confirm the serial number from the device's label.</li>
+      </ol>
+      <div class="waiting"><span class="spinner" aria-hidden="true"></span><span>Waiting for your device… this page continues by itself.</span></div>
+      <button class="primary" type="button" id="onboard-demo">Explore the demo room <span aria-hidden="true">→</span></button>
+      <div class="auth-switch">Not you? <button type="button" id="onboard-signout">Sign out</button></div>
+    </div>
+  </section>
+
+  <!-- Opened from the device's QR code: …/room-view/#pair/CODE -->
+  <section id="pairing" class="auth gate" aria-label="Pair a device" hidden>
+    <div class="auth-card glass">
+      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub" id="pair-email"></div></div></div>
+      <div class="auth-eyebrow">New device</div>
+      <h1 id="pair-title">Pair this device?</h1>
+      <div class="serial-card">
+        <div class="serial-label">Serial number</div>
+        <div class="serial" id="pair-serial">…</div>
+        <div class="serial-hint">Check that it matches the label on your device.</div>
+      </div>
+      <p class="form-msg" id="pair-msg" hidden></p>
+      <div class="row-buttons wide-buttons">
+        <button class="primary" type="button" id="pair-confirm" disabled>Pair device</button>
+        <button class="ghost" type="button" id="pair-cancel">Not now</button>
+      </div>
+      <p class="auth-foot" id="pair-expiry"></p>
+    </div>
+  </section>
+
+  <!-- Sign in / create account -->
+  <section id="auth" class="auth gate" aria-label="Sign in">
+    <div class="auth-card glass">
+      <div class="auth-brand"><div class="brand-mark" aria-hidden="true"><span></span></div><div><div class="brand-name">Room Sentinel</div><div class="brand-sub">Thermal guard for real rooms</div></div></div>
+      <div class="auth-eyebrow">Your room, at a glance</div>
+      <h1 id="auth-title">Welcome back</h1>
+      <p class="auth-sub" id="auth-sub">Sign in to see your room live.</p>
+      <form id="auth-form" novalidate>
+        <label class="input"><span>Email address</span><input id="auth-email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+        <label class="input"><span>Password</span>
+          <span class="input-wrap"><input id="auth-password" type="password" autocomplete="current-password" placeholder="8–32 characters, a letter and a number" maxlength="32"><button type="button" class="reveal" id="auth-reveal">Show</button></span>
+        </label>
+        <label class="input" id="auth-confirm-field" hidden><span>Confirm password</span><input id="auth-confirm" type="password" autocomplete="new-password" placeholder="Enter your password again" maxlength="32"></label>
+        <p class="form-msg" id="auth-notice" role="status" hidden></p>
+        <p class="form-msg error" id="auth-error" role="alert" hidden></p>
+        <button class="primary" type="submit" id="auth-submit">Sign in <span aria-hidden="true">→</span></button>
+      </form>
+      <div class="auth-switch"><span id="auth-switch-text">New to Room Sentinel?</span> <button type="button" id="auth-mode">Create an account</button></div>
+      <div class="auth-divider"><span>or</span></div>
+      <button class="ghost wide" type="button" id="auth-offline">Explore the offline demo</button>
+      <details class="auth-server"><summary>Server</summary><label class="input"><span>API address</span><input id="auth-api" type="url" autocomplete="off"></label></details>
+      <p class="auth-foot">Your password goes only to the server; this page never stores it.</p>
+    </div>
+  </section>
+
+  <!-- Bottom dock: configurator -->
+  <section class="dock" data-reveal>
+    <div class="dock-row glass" id="demo-row">
+      <div class="dock-group grow">
+        <div class="dock-label">Outside <b id="outside-value">5 °C</b></div>
+        <input type="range" id="outside" min="-20" max="30" step="1" value="5" aria-label="Outside temperature">
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Window</div>
+        <div class="segmented" id="window-select"><button data-v="closed" class="active">Closed</button><button data-v="tilted">Tilted</button><button data-v="open">Open</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Door</div>
+        <div class="segmented" id="door-select"><button data-v="false" class="active">Closed</button><button data-v="true">Open</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Heater</div>
+        <div class="segmented" id="heater-select"><button data-v="auto" class="active">Auto</button><button data-v="on">On</button><button data-v="off">Off</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Speed</div>
+        <div class="segmented" id="speed-select"><button data-v="1">1×</button><button data-v="10">10×</button><button data-v="60" class="active">60×</button></div>
+      </div>
+      <div class="dock-group">
+        <div class="dock-label">Scenario</div>
+        <div class="dock-inline">
+          <select id="scenario-select" aria-label="Scenario"></select>
+          <button class="ghost" id="reset-btn" title="Back to a settled room">Reset</button>
+        </div>
+      </div>
+    </div>
+    <div class="dock-row glass views" id="view-row">
+      <div class="dim-switch" id="dim-select" role="group" aria-label="3D or 2D view"><button data-v="3d" class="active">3D</button><button data-v="2d">2D</button></div>
+      <span class="views-sep" aria-hidden="true"></span>
+      <button data-view="overview" class="active">Overview</button>
+      <button data-view="window">Window</button>
+      <button data-view="door">Door</button>
+      <button data-view="heater">Heater</button>
+      <button data-view="top">Top</button>
+    </div>
+  </section>
+
+  <footer class="credit">Room model “room” by <a href="https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713" target="_blank" rel="noopener">yYett</a>, CC BY 4.0 · colours between sensors are estimated</footer>
+
+  <script type="module" src="js/background.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

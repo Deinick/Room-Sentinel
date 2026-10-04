@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database import Base
@@ -14,6 +14,10 @@ class Device(Base):
     # The device serial number.
     device_id: Mapped[str] = mapped_column(String, primary_key=True)
     user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # Owner-chosen display name.
+    name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # Desired temperature in degrees Celsius, set by the owner.
+    target_temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # SHA-256 of the manufacturing secret. Survives factory reset; proves which device is calling.
     secret_hash: Mapped[str] = mapped_column(String, nullable=False)

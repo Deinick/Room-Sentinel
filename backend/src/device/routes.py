@@ -9,15 +9,17 @@ Two kinds of caller:
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 
 from src.auth.dependencies import get_current_staff_user, get_current_user
 from src.auth.models import User
 from src.database import get_repository
+from .live import connections
 from .schemas import (
     DeviceCreate,
     DeviceCredentials,
     DeviceToken,
+    DeviceUpdate,
     PairingInfo,
     PairingStarted,
     ReadDevice,
@@ -98,13 +100,16 @@ async def get_pairing(code: str, _: UserDep, service: ServiceDep) -> PairingInfo
     status_code=status.HTTP_204_NO_CONTENT,
     summary="User: confirm the serial number and link the device",
 )
-async def confirm_pairing(code: str, user: UserDep, service: ServiceDep) -> None:
+async def confirm_pairing(code: str, user: UserDep, service: ServiceDep, background: BackgroundTasks) -> None:
     try:
-        await service.confirm(code=code, user_id=user.id)
+        revoked_device_id = await service.confirm(code=code, user_id=user.id)
     except PairingNotFound:
         raise _not_found
     except PairingExpired:
         raise _expired
+    if revoked_device_id is not None:
+        # The previous owner's token is gone; drop the connection it opened. Runs after the commit.
+        background.add_task(connections.disconnect, revoked_device_id)
 
 
 @router.get("/devices", response_model=list[ReadDevice], summary="User: list my devices")
@@ -112,12 +117,29 @@ async def list_devices(user: UserDep, service: ServiceDep) -> list[ReadDevice]:
     return [ReadDevice.model_validate(d) for d in await service.list_for_user(user.id)]
 
 
+@router.patch("/devices/{device_id}", response_model=ReadDevice, summary="User: rename a device or set its target temperature")
+async def update_device(
+    device_id: str, payload: DeviceUpdate, user: UserDep, service: ServiceDep, background: BackgroundTasks
+) -> ReadDevice:
+    changes = payload.model_dump(exclude_unset=True)
+    try:
+        device = await service.update_settings(device_id=device_id, user_id=user.id, changes=changes)
+    except PairingNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+    if "target_temperature" in changes:
+        # Runs after the commit, so the device never sees a value that was rolled back.
+        background.add_task(connections.push_settings, device.device_id, device.target_temperature)
+    return ReadDevice.model_validate(device)
+
+
 @router.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT, summary="User: unpair a device")
-async def unpair_device(device_id: str, user: UserDep, service: ServiceDep) -> None:
+async def unpair_device(device_id: str, user: UserDep, service: ServiceDep, background: BackgroundTasks) -> None:
     try:
         await service.unpair(device_id=device_id, user_id=user.id)
     except PairingNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+    # The token is revoked; drop the connection it opened. Runs after the commit.
+    background.add_task(connections.disconnect, device_id)
 
 
 # ---------------------------------------------------------------------------

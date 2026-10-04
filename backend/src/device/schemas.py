@@ -25,6 +25,13 @@ class DeviceCredentials(_OrmBase):
     secret: str = Field(min_length=1)
 
 
+class DeviceUpdate(_OrmBase):
+    """Owner-editable settings. Only fields present in the body are changed."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    # The detector measures -55 C to 120 C.
+    target_temperature: Optional[float] = Field(default=None, ge=-55, le=120, allow_inf_nan=False)
+
+
 # ---------------------------------------------------------------------------
 # Device - response bodies
 # ---------------------------------------------------------------------------
@@ -32,6 +39,8 @@ class DeviceCredentials(_OrmBase):
 class ReadDevice(_OrmBase):
     device_id: str
     user_id: Optional[int] = None
+    name: Optional[str] = None
+    target_temperature: Optional[float] = None
     created_at: datetime
     updated_at: datetime
 

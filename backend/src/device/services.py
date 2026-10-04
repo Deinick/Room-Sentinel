@@ -77,6 +77,18 @@ class DeviceService(BaseService):
         logger.info("Device %r provisioned.", device_id)
         return device
 
+    async def update_settings(self, *, device_id: str, user_id: int, changes: dict) -> Device:
+        """Apply owner-editable settings (name, target_temperature) to the user's device."""
+        device = await self.get(device_id)
+        if device is None or device.user_id != user_id:
+            raise PairingNotFound()
+        for field, value in changes.items():
+            setattr(device, field, value)
+        await self.session.flush()
+        await self.session.refresh(device)
+        logger.info("Device %r settings updated: %s.", device_id, sorted(changes))
+        return device
+
     async def unpair(self, *, device_id: str, user_id: int) -> None:
         """Detach a device from its owner and revoke its token."""
         device = await self.get(device_id)
@@ -132,15 +144,19 @@ class DeviceService(BaseService):
     async def get_pairing(self, code: str) -> PairingSession:
         return await self._open_session(code)
 
-    async def confirm(self, *, code: str, user_id: int) -> None:
-        """The signed-in user confirmed the serial number: link the device to their account."""
+    async def confirm(self, *, code: str, user_id: int) -> Optional[str]:
+        """
+        The signed-in user confirmed the serial number: link the device to their account.
+        Returns the device_id if a previous owner's token was revoked, else None.
+        """
         pairing = await self._open_session(code)
         if pairing.confirmed_by is not None and pairing.confirmed_by != user_id:
             raise PairingNotFound()
 
         device = await self.get(pairing.device_id)
         assert device is not None  # FK guarantees it.
-        if device.user_id != user_id:
+        revoked = device.user_id != user_id
+        if revoked:
             # Physical possession plus a factory reset is what transfers a device,
             # so the previous owner's token stops working here.
             device.token_hash = None
@@ -148,6 +164,7 @@ class DeviceService(BaseService):
         pairing.confirmed_by = user_id
         await self.session.flush()
         logger.info("Device %r linked to user id=%d.", device.device_id, user_id)
+        return device.device_id if revoked else None
 
     async def claim_token(self, *, code: str, device_id: str, secret: str) -> str:
         """Hand the device its token once the user has confirmed. Single use."""

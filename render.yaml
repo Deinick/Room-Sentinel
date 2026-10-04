@@ -1,0 +1,35 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Postgres stays on Tiger Cloud; only the API runs on Render.
+services:
+  - type: web
+    name: stormhacks-api
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    # Free instances sleep when idle, which drops device WebSockets.
+    plan: starter
+    # Device sockets live in process memory (src/device/live.py), so never scale out.
+    numInstances: 1
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # The image's uvicorn listens on 8000; tell Render to route there.
+      - key: PORT
+        value: "8000"
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: PGHOST
+        sync: false
+      - key: PGPORT
+        sync: false
+      - key: PGUSER
+        sync: false
+      - key: PGPASSWORD
+        sync: false
+      - key: PGDATABASE
+        sync: false
+      - key: PGSSLMODE
+        value: require
+      # Public URL of the deployed pairing page, e.g. https://stormhacks-api.onrender.com/pair
+      - key: PAIRING_URL_BASE
+        sync: false

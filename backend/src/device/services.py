@@ -33,6 +33,10 @@ class DeviceAuthError(Exception):
     """Unknown serial number or wrong manufacturing secret."""
 
 
+class InvalidLimits(ValueError):
+    """min_temperature is not below max_temperature."""
+
+
 class PairingNotFound(Exception):
     """No such pairing code, or it was already used."""
 
@@ -78,10 +82,15 @@ class DeviceService(BaseService):
         return device
 
     async def update_settings(self, *, device_id: str, user_id: int, changes: dict) -> Device:
-        """Apply owner-editable settings (name, target_temperature) to the user's device."""
+        """Apply owner-editable settings (name, target and limit temperatures) to the user's device."""
         device = await self.get(device_id)
         if device is None or device.user_id != user_id:
             raise PairingNotFound()
+        # Check the limits as they will be stored, so changing only one cannot cross the other.
+        low = changes.get("min_temperature", device.min_temperature)
+        high = changes.get("max_temperature", device.max_temperature)
+        if low is not None and high is not None and low >= high:
+            raise InvalidLimits()
         for field, value in changes.items():
             setattr(device, field, value)
         await self.session.flush()

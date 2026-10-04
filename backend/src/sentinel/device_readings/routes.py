@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from src.database import async_session_maker
 from src.device.live import SettingsPush, connections
 from src.device.services import DeviceService
+from src.sentinel.profiles import PROFILES
 from .schemas import Ack, DeviceReadingIn
 from .services import DeviceReadingService
 
@@ -31,7 +32,12 @@ async def _authenticate(websocket: WebSocket) -> tuple[str, float | None] | None
         return None
     async with async_session_maker() as session:
         device = await DeviceService(session).get_by_token(token)
-    return (device.device_id, device.target_temperature) if device else None
+    if device is None:
+        return None
+    if device.min_temperature is not None or device.max_temperature is not None:
+        # The analyzer keeps limits in memory; restore the owner's after a server restart.
+        PROFILES.set_limits(device.device_id, device.min_temperature, device.max_temperature)
+    return device.device_id, device.target_temperature
 
 
 @router.websocket("/devices/stream")

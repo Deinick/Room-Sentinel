@@ -18,7 +18,7 @@ Open http://localhost:8080/room-view/
 - **Offline preview** (default): a small built-in copy of the backend's room simulation, so the page works
   without the backend. Its alerts are simple rules, not the real detector.
 - **Backend**: open the connection panel (bottom icon on the left), sign in with an account on the API.
-  The API must allow this page's address: `CORS_ORIGINS` in the backend (defaults include
+  The API must allow this page's address: `CORS_ALLOW_ORIGINS` in the backend (defaults include
   `http://localhost:8080` and `http://127.0.0.1:8080`).
 
 ## Links into a scenario

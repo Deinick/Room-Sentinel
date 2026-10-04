@@ -18,6 +18,9 @@ class Device(Base):
     name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     # Desired temperature in degrees Celsius, set by the owner.
     target_temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Alert limits in degrees Celsius: too cold below min, too warm above max. None means no limit.
+    min_temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    max_temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # SHA-256 of the manufacturing secret. Survives factory reset; proves which device is calling.
     secret_hash: Mapped[str] = mapped_column(String, nullable=False)

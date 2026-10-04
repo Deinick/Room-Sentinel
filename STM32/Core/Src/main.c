@@ -35,6 +35,7 @@
 /* USER CODE BEGIN PTD */
 typedef enum {
   UI_HOME = 0,
+  UI_STATISTICS,
   UI_SETTINGS,
   UI_WIFI_SETUP,
   UI_ACCOUNT_LOGIN,
@@ -54,6 +55,10 @@ typedef enum {
 #define UI_PRIMARY 0xF465U    /* orange #F28C28 */
 #define UI_TEXT 0x2924U       /* charcoal #2B2520 */
 #define UI_MUTED 0x7B6CU      /* warm gray #7A6F65 */
+#define UI_COOL 0x2C1DU       /* blue #2F80ED */
+#define HISTORY_SAMPLES 10U
+#define HISTORY_INTERVAL_MS 60000U
+#define TEMPERATURE_INVALID INT16_MIN
 
 /* USER CODE END PD */
 
@@ -100,6 +105,11 @@ static char device_serial[20] = "---- ---- ---- ----";
 static char login_qr_payload[256];
 static char login_status_text[48] = "Waiting for server...";
 static volatile uint32_t login_sequence;
+static int16_t temperature_history[SENSOR_COUNT][HISTORY_SAMPLES];
+static uint8_t history_count;
+static uint8_t history_next;
+static uint32_t history_last_tick;
+static uint8_t sensor_trend_down[SENSOR_COUNT];
 
 static osThreadId_t uartTaskHandle;
 static const osThreadAttr_t uartTask_attributes = {
@@ -143,6 +153,8 @@ static void StartUartTask(void *argument);
 static void UiRender(void);
 static void UiHandleTouch(void);
 static void UiServiceDelay(uint32_t duration_ms);
+static void UiDrawStatistics(void);
+static void HistoryCapture(void);
 static void Esp32SendCommand(const char *command);
 static void Esp32SendTelemetry(void);
 static uint8_t JsonStringField(const char *json, const char *name,
@@ -265,6 +277,10 @@ static void DisplayTemperature(uint8_t sensor_index)
                 Font16, 1U,
                 (temperature_status[sensor_index] == 0U) ? UI_TEXT : RED,
                 UI_PANEL);
+  Displ_FillArea((uint16_t)(x + 8U), (uint16_t)(y + 10U), 5U, 46U,
+                 (temperature_status[sensor_index] != 0U ||
+                  sensor_trend_down[sensor_index] != 0U)
+                     ? UI_COOL : UI_PRIMARY);
 }
 
 static void DisplayWifiStatus(void)
@@ -287,6 +303,9 @@ static void DisplayWifiStatus(void)
   display_value[value_length] = '\0';
   Displ_CString(266U, 238U, 458U, 266U, display_value,
                 Font16, 1U, UI_PRIMARY, UI_PANEL);
+  Displ_FillArea(254U, 220U, 5U, 46U,
+                 (strcmp(wifi_status_text, "WIFI: wifi_connected") == 0)
+                     ? UI_PRIMARY : UI_COOL);
 }
 
 static void UiDrawSensorCard(uint8_t sensor_index, const char *label,
@@ -326,6 +345,124 @@ static void UiDrawGear(void)
   Displ_FillArea(445, 37, 7, 5, UI_PRIMARY);
   Displ_FillArea(433, 24, 5, 7, UI_PRIMARY);
   Displ_FillArea(458, 24, 5, 7, UI_PRIMARY);
+}
+
+static void UiDrawStatisticsIcon(void)
+{
+  Displ_fillRoundRect(8, 7, 48, 40, 9, UI_PANEL);
+  Displ_drawRoundRect(8, 7, 48, 40, 9, UI_PANEL_BORDER);
+  Displ_Line(18, 35, 27, 27, UI_PRIMARY);
+  Displ_Line(27, 27, 35, 31, UI_PRIMARY);
+  Displ_Line(35, 31, 47, 17, UI_PRIMARY);
+  Displ_fillCircle(18, 35, 2, UI_PRIMARY);
+  Displ_fillCircle(27, 27, 2, UI_PRIMARY);
+  Displ_fillCircle(35, 31, 2, UI_PRIMARY);
+  Displ_fillCircle(47, 17, 2, UI_PRIMARY);
+}
+
+static void UiDrawStatistics(void)
+{
+  static const char *const labels[SENSOR_COUNT] = {
+    "CENTRE", "WINDOW", "HEATER", "DOOR", "FAR WALL"
+  };
+  Displ_CString(15, 5, 465, 39, "10 MINUTE TEMPERATURE HISTORY",
+                Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
+
+  uint8_t oldest = (history_count < HISTORY_SAMPLES) ? 0U : history_next;
+  for (uint8_t sensor = 0U; sensor < SENSOR_COUNT; sensor++)
+  {
+    uint16_t y = (uint16_t)(43U + sensor * 43U);
+    Displ_fillRoundRect(12, y, 456, 37, 7, UI_PANEL);
+    Displ_drawRoundRect(12, y, 456, 37, 7, UI_PANEL_BORDER);
+    Displ_CString(20, y, 105, (uint16_t)(y + 36U), labels[sensor],
+                  Font16, 1U, UI_MUTED, UI_PANEL);
+
+    int16_t minimum = INT16_MAX;
+    int16_t maximum = INT16_MIN;
+    int16_t latest = TEMPERATURE_INVALID;
+    for (uint8_t point = 0U; point < history_count; point++)
+    {
+      uint8_t index = (uint8_t)((oldest + point) % HISTORY_SAMPLES);
+      int16_t value = temperature_history[sensor][index];
+      if (value == TEMPERATURE_INVALID) continue;
+      if (value < minimum) minimum = value;
+      if (value > maximum) maximum = value;
+      latest = value;
+    }
+    char value_text[16];
+    if (latest == TEMPERATURE_INVALID)
+      (void)strncpy(value_text, "--.- C", sizeof(value_text));
+    else
+    {
+      int16_t magnitude = (latest < 0) ? -latest : latest;
+      (void)snprintf(value_text, sizeof(value_text), "%s%d.%d C",
+                     (latest < 0) ? "-" : "", magnitude / 10, magnitude % 10);
+    }
+    Displ_CString(105, y, 174, (uint16_t)(y + 36U), value_text,
+                  Font16, 1U, UI_TEXT, UI_PANEL);
+
+    int16_t previous_x = -1;
+    int16_t previous_y = -1;
+    for (uint8_t point = 0U; point < history_count; point++)
+    {
+      uint8_t index = (uint8_t)((oldest + point) % HISTORY_SAMPLES);
+      int16_t value = temperature_history[sensor][index];
+      if (value == TEMPERATURE_INVALID)
+      {
+        previous_x = -1;
+        continue;
+      }
+      int16_t plot_x = (int16_t)(184 + point * 29);
+      int16_t plot_y = (int16_t)(y + 18U);
+      if (maximum > minimum)
+        plot_y = (int16_t)(y + 30U -
+                 ((int32_t)(value - minimum) * 24 / (maximum - minimum)));
+      if (previous_x >= 0)
+        Displ_Line(previous_x, previous_y, plot_x, plot_y, UI_PRIMARY);
+      Displ_fillCircle(plot_x, plot_y, 2, UI_PRIMARY);
+      previous_x = plot_x;
+      previous_y = plot_y;
+    }
+  }
+  char progress[24];
+  (void)snprintf(progress, sizeof(progress), "%u / 10 MINUTES",
+                 (unsigned int)history_count);
+  UiDrawButton(15, 270, 130, 40, "< BACK", UI_PANEL);
+  Displ_CString(165, 270, 465, 310, progress,
+                Font16, 1U, UI_MUTED, UI_BACKGROUND);
+}
+
+static void HistoryCapture(void)
+{
+  uint32_t now = HAL_GetTick();
+  if (history_count != 0U && (uint32_t)(now - history_last_tick) < HISTORY_INTERVAL_MS)
+    return;
+
+  uint8_t previous_index = (history_next == 0U)
+                               ? (HISTORY_SAMPLES - 1U)
+                               : (uint8_t)(history_next - 1U);
+  for (uint8_t sensor = 0U; sensor < SENSOR_COUNT; sensor++)
+  {
+    int16_t current = TEMPERATURE_INVALID;
+    if (temperature_status[sensor] == 0U)
+    {
+      float temperature = temperature_sensors[sensor].temperature;
+      current = (int16_t)((temperature >= 0.0f)
+                         ? (temperature * 10.0f + 0.5f)
+                         : (temperature * 10.0f - 0.5f));
+    }
+    if (history_count != 0U && current != TEMPERATURE_INVALID &&
+        temperature_history[sensor][previous_index] != TEMPERATURE_INVALID)
+      sensor_trend_down[sensor] =
+          current < temperature_history[sensor][previous_index];
+    else
+      sensor_trend_down[sensor] = 0U;
+    temperature_history[sensor][history_next] = current;
+  }
+  history_next = (uint8_t)((history_next + 1U) % HISTORY_SAMPLES);
+  if (history_count < HISTORY_SAMPLES) history_count++;
+  history_last_tick = now;
+  if (ui_screen == UI_HOME || ui_screen == UI_STATISTICS) ui_redraw = 1U;
 }
 
 static void UiDrawQrCode(const char *payload)
@@ -373,23 +510,30 @@ static void UiRender(void)
     static const uint16_t sensor_accents[SENSOR_COUNT] = {
       UI_PRIMARY, UI_PRIMARY, UI_PRIMARY, UI_PRIMARY, UI_PRIMARY
     };
-    Displ_CString(14, 7, 205, 45, "ROOM SENTINEL",
+    UiDrawStatisticsIcon();
+    Displ_CString(62, 7, 235, 45, "ROOM SENTINEL",
                   Font16, 1U, UI_TEXT, UI_BACKGROUND);
-    Displ_CString(210, 7, 408, 45, "LIVE MONITOR",
+    Displ_CString(238, 7, 414, 45, "LIVE MONITOR",
                   Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawGear();
     (void)memset(displayed_temperature_text, 0,
                  sizeof(displayed_temperature_text));
     for (uint8_t i = 0U; i < SENSOR_COUNT; i++) {
-      UiDrawSensorCard(i, sensor_labels[i], sensor_accents[i]);
+      uint16_t accent = (temperature_status[i] != 0U ||
+                         sensor_trend_down[i] != 0U) ? UI_COOL : sensor_accents[i];
+      UiDrawSensorCard(i, sensor_labels[i], accent);
       DisplayTemperature(i);
     }
     Displ_fillRoundRect(246, 210, 222, 66, 8, UI_PANEL);
     Displ_drawRoundRect(246, 210, 222, 66, 8, UI_PANEL_BORDER);
-    Displ_FillArea(254, 220, 5, 46, UI_PRIMARY);
+    Displ_FillArea(254, 220, 5, 46,
+                   (strcmp(wifi_status_text, "WIFI: wifi_connected") == 0)
+                       ? UI_PRIMARY : UI_COOL);
     Displ_CString(266, 215, 458, 239, "WI-FI CONNECTION",
                   Font16, 1U, UI_MUTED, UI_PANEL);
     DisplayWifiStatus();
+  } else if (ui_screen == UI_STATISTICS) {
+    UiDrawStatistics();
   } else if (ui_screen == UI_SETTINGS) {
     Displ_CString(20, 10, 459, 48, "SETTINGS", Font16, 1U, UI_PRIMARY, UI_BACKGROUND);
     UiDrawButton(40, 60, 400, 50, "WI-FI SETUP", UI_PANEL);
@@ -447,8 +591,16 @@ static void UiHandleTouch(void)
     return;
   }
 
-  if (ui_screen == UI_HOME && x >= 395U && y <= 70U) {
-    ui_screen = UI_SETTINGS;
+  if (ui_screen == UI_HOME && y <= 70U) {
+    if (x <= 75U)
+      ui_screen = UI_STATISTICS;
+    else if (x >= 395U)
+      ui_screen = UI_SETTINGS;
+    else
+      return;
+    ui_redraw = 1U;
+  } else if (ui_screen == UI_STATISTICS && x <= 180U && y >= 240U) {
+    ui_screen = UI_HOME;
     ui_redraw = 1U;
   } else if (ui_screen == UI_SETTINGS) {
     if (y >= 45U && y < 115U) {
@@ -1138,6 +1290,7 @@ void StartDefaultTask(void *argument)
     }
 
     Esp32SendTelemetry();
+    HistoryCapture();
 
     if (displayed_wifi_sequence != wifi_status_sequence)
     {

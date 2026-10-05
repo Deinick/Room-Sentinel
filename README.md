@@ -7,7 +7,6 @@ normally behaves. When it cools faster than it should (an open window, a heater 
 a door left open), Room Sentinel says so on the website, on the device and as a push notification
 on your phone, with a forecast and a concrete fix.
 
-Built at **StormHacks 2026**.
 
 **[Live demo →](https://stormhacks-ten.vercel.app/room-view/)**
 
@@ -176,6 +175,5 @@ All rights reserved. The code is public to view, not to reuse — see [LICENSE](
 
 ## Acknowledgements
 
-- Built at StormHacks 2026.
 - Room model "room" by [yYett](https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713), CC BY 4.0.
 - The mobile app started from the Expo app template (MIT, © 650 Industries, Inc.).

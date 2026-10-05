@@ -1,0 +1,14 @@
+Copyright (c) 2026 Alezhuq Kutryk, Sergei Naumov, Anton Polamarchuk and Nikolay Deinego.
+All rights reserved.
+
+This repository is published so that it can be viewed and evaluated. No license is
+granted to copy, modify, distribute, sublicense or use this software or any part of it,
+in source or binary form, for any purpose, without prior written permission from the
+copyright holders.
+
+Third-party material keeps its own license:
+- frontend/room.glb: room model "room" by yYett, CC BY 4.0
+  (https://sketchfab.com/3d-models/room-65f4aba797c04c56a8dc25205a1c7713).
+- mobile/: started from the Expo app template, MIT License,
+  Copyright (c) 2015-present 650 Industries, Inc. (aka Expo).
+- Libraries installed through npm, pip, ESP-IDF and STM32Cube keep their own licenses.

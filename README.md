@@ -1,4 +1,4 @@
-# stormhacks
+# Room Sentinel
 
 ### Project Architecture
 

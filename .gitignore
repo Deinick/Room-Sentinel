@@ -1,4 +1,9 @@
+# Secrets: keep real values out of git (.env.example stays tracked)
 .env
+.env.*
+!.env.example
+*credentials*.env
+
 __pycache__/
 *.pyc
 venv/
@@ -26,5 +31,6 @@ ESP32/sdkconfig.old
 # Editor and OS metadata
 .vscode/
 .idea/
+.claude/
 Thumbs.db
 .DS_Store

@@ -1,6 +1,6 @@
 """Start the gateway. Run from the backend/ folder:
 
-    python -m src.sentinel.run                                 # replay sample.log, one line per second
+    python -m src.sentinel.run                                 # replay samples/sample.log, one line per second
     python -m src.sentinel.run --file my.log --delay 0          # replay a log as fast as possible
     python -m src.sentinel.run --serial /dev/tty.usbmodem1103   # the real device
     python -m src.sentinel.run --no-db                          # don't save anything
@@ -65,7 +65,7 @@ def tick_forever(pipeline: Pipeline):
 def main():
     ap=argparse.ArgumentParser(prog="python -m src.sentinel.run")
     source=ap.add_mutually_exclusive_group()
-    source.add_argument("--file",default="sample.log",help="log file to replay (default: sample.log)")
+    source.add_argument("--file",default="samples/sample.log",help="log file to replay (default: samples/sample.log)")
     source.add_argument("--serial",metavar="PORT",help="read the device, e.g. /dev/tty.usbmodem1103")
     source.add_argument("--stdin",action="store_true",help="read lines piped in")
     ap.add_argument("--delay",type=float,default=1.0,help="seconds between replayed lines (0 = no wait)")

@@ -2,7 +2,7 @@ services:
   fastapi:
     build:
       context: ./backend
-    container_name: stormhacks_fastapi
+    container_name: room_sentinel_api
     # Loads the PG* vars (the Tiger Cloud database) and other settings
     # from .env, see .env.example.
     env_file:
@@ -14,7 +14,7 @@ services:
   # Static 3D room view (no build step). Open http://localhost:8080/room-view/
   frontend:
     image: nginx:1.27-alpine
-    container_name: stormhacks_frontend
+    container_name: room_sentinel_web
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro

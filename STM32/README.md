@@ -1,4 +1,6 @@
-# StormHacks STM32 firmware
+# Room Sentinel — STM32 firmware
+
+← Part of [Room Sentinel](../README.md)
 
 Initial STM32CubeMX configuration derived from the proven hardware setup in
 `Heating Floor Controller Project`.

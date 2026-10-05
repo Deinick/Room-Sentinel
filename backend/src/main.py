@@ -62,7 +62,7 @@ async def _run_demos(app: FastAPI) -> None:
         last = now
 
 
-app = FastAPI(title="stormhacks gateway", lifespan=lifespan)
+app = FastAPI(title="Room Sentinel API", lifespan=lifespan)
 # Comma-separated browser origins allowed to call the API, e.g. the deployed frontend.
 # A trailing slash is dropped: browsers send the origin without one, so it would never match.
 # Auth uses bearer tokens, not cookies, so credentialed CORS is not needed.

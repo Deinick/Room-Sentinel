@@ -8,7 +8,7 @@
 #include "server_link.h"
 #include "wifi_provisioning.h"
 
-static const char *TAG = "stormhacks";
+static const char *TAG = "room-sentinel";
 
 void app_main(void)
 {

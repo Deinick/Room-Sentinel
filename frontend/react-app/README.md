@@ -4,7 +4,9 @@
 > account API client and 2D room plan into the new 3D, liquid-glass design.
 > Kept here for reference only; it is not deployed and no longer updated.
 
-# stormhacks
+# Room Sentinel — first website (React)
+
+← Part of [Room Sentinel](../../README.md)
 
 ## React frontend prototype
 

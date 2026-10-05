@@ -1,4 +1,6 @@
-# Room view (website)
+# Room Sentinel — website (room view)
+
+← Part of [Room Sentinel](../../README.md)
 
 Full-screen 3D room with live temperatures, alerts and demo controls. No build step: plain HTML, CSS and
 JavaScript modules; three.js and GSAP load from CDNs.

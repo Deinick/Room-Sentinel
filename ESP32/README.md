@@ -1,4 +1,6 @@
-# StormHacks ESP32 firmware
+# Room Sentinel — ESP32 firmware
+
+← Part of [Room Sentinel](../README.md)
 
 ESP-IDF firmware for an ESP32-WROOM module. The firmware provides:
 

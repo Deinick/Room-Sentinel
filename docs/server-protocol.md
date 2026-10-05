@@ -1,4 +1,4 @@
-# StormHacks controller/server protocol
+# Room Sentinel — controller/server protocol
 
 Production server: `https://stormhacks.onrender.com`
 
